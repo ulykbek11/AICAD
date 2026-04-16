@@ -516,6 +516,22 @@ export default function App() {
     return () => svgEl.removeEventListener('wheel', handleWheel);
   }, []);
 
+  const handleZoomButton = (isZoomIn) => {
+     setAppState(p => {
+         if (!svgRef.current) return p;
+         const factor = isZoomIn ? 1.2 : 1 / 1.2;
+         const newZoom = Math.min(Math.max(p.zoom * factor, 0.05), 20.0);
+         const rect = svgRef.current.getBoundingClientRect();
+         const centerX = rect.width / 2;
+         const centerY = rect.height / 2;
+         
+         const newPanX = centerX - (centerX - p.panOffset.x) * (newZoom / p.zoom);
+         const newPanY = centerY - (centerY - p.panOffset.y) * (newZoom / p.zoom);
+         
+         return { ...p, zoom: newZoom, panOffset: { x: newPanX, y: newPanY } };
+     });
+  };
+
   // Click on element
   const handleObjectClick = (e, el) => {
     e.stopPropagation(); // prevent box select
@@ -905,6 +921,24 @@ export default function App() {
                       )}
                   </g>
               </svg>
+
+              {/* Floating Zoom Controls */}
+              <div className="absolute right-4 bottom-4 flex flex-col gap-2 z-20">
+                  <button 
+                      className="w-8 h-8 bg-[#151525] border border-[#2a3a4a] rounded shadow hover:bg-[#252535] text-white flex items-center justify-center font-bold text-lg"
+                      onClick={(e) => { e.stopPropagation(); handleZoomButton(true); }}
+                      title="Увеличить масштаб (+)"
+                  >
+                      +
+                  </button>
+                  <button 
+                      className="w-8 h-8 bg-[#151525] border border-[#2a3a4a] rounded shadow hover:bg-[#252535] text-white flex items-center justify-center font-bold text-lg"
+                      onClick={(e) => { e.stopPropagation(); handleZoomButton(false); }}
+                      title="Уменьшить масштаб (-)"
+                  >
+                      -
+                  </button>
+              </div>
           </div>
 
           {/* RIGHT PANELS WRAPPER */}
