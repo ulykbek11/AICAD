@@ -539,7 +539,7 @@ export default function App() {
        return;
     }
 
-    if (appState.activeTool === 'select' || appState.activeTool === 'move' || appState.activeTool === 'copy') {
+    if (['select', 'move', 'copy', 'rotate', 'scale'].includes(appState.activeTool)) {
         setAppState(p => ({
             ...p,
             selectedElements: e.shiftKey 
@@ -614,12 +614,14 @@ export default function App() {
                 key={el.id} 
                 className={`cad-object ${layer.locked ? 'locked' : ''}`}
                 style={{ pointerEvents: layer.locked ? 'none' : 'auto' }}
-                stroke={isSelected ? '#4a9eff' : '#ffffff'}
-                strokeWidth={strokeWidth}
-                fill="none"
                 onClick={(e) => handleObjectClick(e, el)}
              >
-                {shape}
+                {/* Invisible larger hit area for easier selection */}
+                {React.cloneElement(shape, { stroke: "transparent", strokeWidth: 10/appState.zoom, pointerEvents: "stroke", fill: "none" })}
+                
+                {/* Visible shape */}
+                {React.cloneElement(shape, { stroke: isSelected ? '#4a9eff' : '#ffffff', strokeWidth: strokeWidth, fill: "none" })}
+
                 {/* Grips if selected */}
                 {isSelected && !layer.locked && (
                    <g>
@@ -663,6 +665,74 @@ export default function App() {
               const mid = drawingPoints[1];
               return <path d={`M ${p1.x} ${p1.y} Q ${mid.x} ${mid.y} ${p2.x} ${p2.y}`} stroke="#4a9eff" fill="none" strokeWidth="1" strokeDasharray="5,5" />;
           }
+      }
+      if (['move', 'copy', 'rotate', 'scale'].includes(activeTool)) {
+          const { selectedElements, elements } = appState;
+          if (selectedElements.length === 0) return null;
+          const selElements = elements.filter(e => selectedElements.includes(e.id));
+          
+          const center = drawingPoints[0];
+          let dx = 0, dy = 0, scaleFactor = 1, angle = 0;
+          if (activeTool === 'move' || activeTool === 'copy') {
+             dx = p2.x - center.x;
+             dy = p2.y - center.y;
+          } else if (activeTool === 'rotate') {
+             angle = Math.atan2(p2.y - center.y, p2.x - center.x);
+          } else if (activeTool === 'scale') {
+             const distInitial = 50;
+             scaleFactor = Math.max(0.01, dist(center, p2) / distInitial);
+          }
+
+          return (
+             <g opacity="0.6">
+                 {/* Draw guideline to mouse */}
+                 <line x1={center.x} y1={center.y} x2={p2.x} y2={p2.y} stroke="#8888aa" strokeWidth={1/appState.zoom} strokeDasharray="5,5" />
+                 
+                 {selElements.map(el => {
+                     let movedPts = el.points;
+                     let newRadius = el.radius;
+                     if (activeTool === 'move' || activeTool === 'copy') {
+                        movedPts = el.points?.map(p => ({x: p.x + dx, y: p.y + dy}));
+                     } else if (activeTool === 'rotate') {
+                        movedPts = el.points?.map(p => {
+                            const dx0 = p.x - center.x;
+                            const dy0 = p.y - center.y;
+                            return {
+                               x: center.x + dx0 * Math.cos(angle) - dy0 * Math.sin(angle),
+                               y: center.y + dx0 * Math.sin(angle) + dy0 * Math.cos(angle)
+                            };
+                        });
+                     } else if (activeTool === 'scale') {
+                        movedPts = el.points?.map(p => {
+                            const dx0 = p.x - center.x;
+                            const dy0 = p.y - center.y;
+                            return { x: center.x + dx0 * scaleFactor, y: center.y + dy0 * scaleFactor };
+                        });
+                        newRadius = el.radius ? el.radius * scaleFactor : el.radius;
+                     }
+
+                     let shape = null;
+                     if (el.type === 'line' && movedPts && movedPts.length >= 2) {
+                        shape = <line x1={movedPts[0].x} y1={movedPts[0].y} x2={movedPts[1].x} y2={movedPts[1].y} />;
+                     } else if (el.type === 'circle' && movedPts && movedPts.length > 0) {
+                        shape = <circle cx={movedPts[0].x} cy={movedPts[0].y} r={newRadius} />;
+                     } else if ((el.type === 'rect' || el.type === 'polygon' || el.type === 'polyline') && movedPts) {
+                        const ptsStr = movedPts.map(p => `${p.x},${p.y}`).join(' ');
+                        shape = el.type === 'polyline' ? <polyline points={ptsStr} fill="none" /> : <polygon points={ptsStr} fill="none" />;
+                     } else if (el.type === 'arc' && movedPts && movedPts.length === 3) {
+                        const [mp1, mp2, mp3] = movedPts;
+                        shape = <path d={`M ${mp1.x} ${mp1.y} Q ${mp2.x} ${mp2.y} ${mp3.x} ${mp3.y}`} fill="none" />;
+                     }
+
+                     if (!shape) return null;
+                     return (
+                        <g key={`draft-${el.id}`} stroke="#4a9eff" strokeWidth={1/appState.zoom} strokeDasharray="5,5">
+                           {shape}
+                        </g>
+                     );
+                 })}
+             </g>
+          );
       }
       if (activeTool === 'box_select') { // UI overlay, actually absolute coords are better, but CAD space is fine
           const w = p2.x - p1.x;
@@ -740,7 +810,6 @@ export default function App() {
                       <div className={`tool-btn ${appState.activeTool === 'rotate' ? 'active' : ''}`} onClick={() => setTool('rotate', 'ROTATE')} title="Повернуть [RO]"><i className="fa-solid fa-rotate"></i><span>Повернуть</span></div>
                       <div className={`tool-btn ${appState.activeTool === 'scale' ? 'active' : ''}`} onClick={() => setTool('scale', 'SCALE')} title="Масштаб [SC]"><i className="fa-solid fa-maximize"></i><span>Масштаб</span></div>
                       <div className={`tool-btn ${appState.activeTool === 'trim' ? 'active' : ''}`} onClick={() => setTool('trim', 'TRIM')} title="Обрезать [TR]"><i className="fa-solid fa-scissors"></i><span>Обрезать</span></div>
-                      <div className={`tool-btn ${appState.activeTool === 'erase' ? 'active' : ''}`} onClick={() => setTool('erase', 'ERASE')} title="Стереть [E]"><i className="fa-solid fa-eraser"></i><span>Стереть</span></div>
                   </div>
                   <div className="text-center text-[11px] text-[#8888aa] pb-0.5">Редактирование</div>
               </div>
