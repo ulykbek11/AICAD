@@ -1,0 +1,114 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    font-family: 'Segoe UI', 'Inter', system-ui, sans-serif;
+  }
+}
+
+@layer components {
+  /* Custom scrollbars */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #2a3a4a;
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #4a9eff;
+  }
+
+  .no-scroll::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scroll {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+
+  /* Canvas SVG objects */
+  .cad-object {
+    cursor: pointer;
+    pointer-events: auto;
+    transition: stroke 0.1s, opacity 0.1s;
+  }
+  .cad-object:hover:not(.locked) {
+    stroke: #ffffff;
+    opacity: 0.8;
+  }
+  
+  .cad-grip {
+    fill: #4a9eff;
+    stroke: #ffffff;
+    pointer-events: auto;
+    cursor: pointer;
+  }
+  .cad-grip:hover {
+    fill: #ffffff;
+    stroke: #4a9eff;
+  }
+
+  /* Utility for tool icons */
+  .tool-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    color: #aaaacc;
+    border: 1px solid transparent;
+    transition: all 0.1s ease;
+    width: 60px;
+  }
+  .tool-btn:hover {
+    background: #2a2a3a;
+    color: #ffffff;
+  }
+  .tool-btn.active {
+    background: #0d2a4a;
+    border-bottom: 2px solid #4a9eff;
+    border-radius: 4px 4px 0 0;
+    color: #ffffff;
+  }
+  .tool-btn i {
+    font-size: 18px;
+  }
+  .tool-btn span {
+    font-size: 11px;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .left-btn {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    cursor: pointer;
+    color: #aaaacc;
+    transition: background 0.1s;
+    border-left: 3px solid transparent;
+  }
+  .left-btn:hover {
+    background: #2a2a3a;
+    color: #ffffff;
+  }
+  .left-btn.active {
+    background: #0d2a4a;
+    border-left: 3px solid #4a9eff;
+    border-radius: 0 4px 4px 0;
+    color: #ffffff;
+  }
+}
