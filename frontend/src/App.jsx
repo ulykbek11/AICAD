@@ -88,9 +88,16 @@ export default function App() {
     setAppState(p => ({ ...p, commandLog: [...p.commandLog, msg].slice(-5) }));
   };
 
-  // Switch tool
   const setTool = (tool, logName) => {
-    setAppState(p => ({ ...p, activeTool: tool, isDrawing: false, selectedElements: [] }));
+    if (tool === 'erase' && stateRef.current.selectedElements.length > 0) {
+      const idSet = new Set(stateRef.current.selectedElements);
+      const newElements = stateRef.current.elements.filter(el => !idSet.has(el.id));
+      setAppState(p => ({ ...p, elements: newElements, selectedElements: [], activeTool: 'select' }));
+      pushHistory(newElements);
+      if (logName) logCmd(`Command: _${logName}`);
+      return;
+    }
+    setAppState(p => ({ ...p, activeTool: tool, isDrawing: false, selectedElements: tool === 'select' || tool === 'move' || tool === 'copy' || tool === 'rotate' || tool === 'scale' || tool === 'erase' ? p.selectedElements : [] }));
     draftRef.current = { points: [], tempPoint: null, center: null, stringInput: "" };
     if (logName) logCmd(`Command: _${logName}`);
   };
@@ -266,7 +273,23 @@ export default function App() {
         logCmd(`LINE от (${newEl.points[0].x.toFixed(1)}, ${newEl.points[0].y.toFixed(1)}) до (${pt.x.toFixed(1)}, ${pt.y.toFixed(1)})`);
       }
     }
-    else if (appState.activeTool === 'polyline' || appState.activeTool === 'polygon' || appState.activeTool === 'spline') {
+    else if (appState.activeTool === 'arc') {
+      if (!appState.isDrawing) {
+        draftRef.current.points = [pt];
+        setAppState(p => ({ ...p, isDrawing: true, drawingPoints: [pt, pt] }));
+      } else if (draftRef.current.points.length === 1) {
+        draftRef.current.points.push(pt);
+        setAppState(p => ({ ...p, drawingPoints: [...draftRef.current.points, pt] }));
+      } else {
+        const pts = [...draftRef.current.points, pt];
+        const newEl = { id: uuid(), type: 'arc', layer: appState.activeLayer, points: pts };
+        const newElements = [...appState.elements, newEl];
+        setAppState(p => ({ ...p, elements: newElements, isDrawing: false, drawingPoints: [] }));
+        pushHistory(newElements);
+        logCmd(`ARC завершен`);
+      }
+    }
+    else if (appState.activeTool === 'polygon' || appState.activeTool === 'spline') {
        const pts = [...draftRef.current.points, pt];
        draftRef.current.points = pts;
        setAppState(p => ({ ...p, isDrawing: true, drawingPoints: pts }));
@@ -329,7 +352,7 @@ export default function App() {
       }
     }
     else if (appState.activeTool === 'copy') {
-      if (appState.selectedElements.length === 0) return;
+      if (appState.selectedElements.length === 0) { logCmd("Сначала выберите объекты для копирования"); return; }
       if (!appState.isDrawing) {
         draftRef.current.points = [pt];
         setAppState(p => ({ ...p, isDrawing: true, drawingPoints: [pt, pt] }));
@@ -346,6 +369,60 @@ export default function App() {
         setAppState(p => ({ ...p, elements: newElements, isDrawing: false, drawingPoints: [] }));
         pushHistory(newElements);
         logCmd(`COPY (${dx.toFixed(1)}, ${dy.toFixed(1)})`);
+      }
+    }
+    else if (appState.activeTool === 'rotate') {
+      if (appState.selectedElements.length === 0) { logCmd("Сначала выберите объекты для поворота"); return; }
+      if (!appState.isDrawing) {
+        draftRef.current.points = [pt];
+        setAppState(p => ({ ...p, isDrawing: true, drawingPoints: [pt, pt] }));
+      } else {
+        const center = draftRef.current.points[0];
+        const angle = Math.atan2(pt.y - center.y, pt.x - center.x);
+        
+        const selSet = new Set(appState.selectedElements);
+        const newElements = appState.elements.map(el => {
+           if (!selSet.has(el.id)) return el;
+           const movedPts = el.points?.map(p => {
+               const dx = p.x - center.x;
+               const dy = p.y - center.y;
+               return {
+                  x: center.x + dx * Math.cos(angle) - dy * Math.sin(angle),
+                  y: center.y + dx * Math.sin(angle) + dy * Math.cos(angle)
+               };
+           });
+           return { ...el, points: movedPts };
+        });
+        
+        setAppState(p => ({ ...p, elements: newElements, isDrawing: false, drawingPoints: [] }));
+        pushHistory(newElements);
+        logCmd(`ROTATE (${(angle * 180 / Math.PI).toFixed(1)} deg)`);
+      }
+    }
+    else if (appState.activeTool === 'scale') {
+      if (appState.selectedElements.length === 0) { logCmd("Сначала выберите объекты для масштабирования"); return; }
+      if (!appState.isDrawing) {
+        draftRef.current.points = [pt];
+        setAppState(p => ({ ...p, isDrawing: true, drawingPoints: [pt, pt] }));
+      } else {
+        const center = draftRef.current.points[0];
+        const distInitial = 50;
+        const scaleFactor = Math.max(0.01, dist(center, pt) / distInitial);
+        
+        const selSet = new Set(appState.selectedElements);
+        const newElements = appState.elements.map(el => {
+           if (!selSet.has(el.id)) return el;
+           const movedPts = el.points?.map(p => {
+               const dx = p.x - center.x;
+               const dy = p.y - center.y;
+               return { x: center.x + dx * scaleFactor, y: center.y + dy * scaleFactor };
+           });
+           return { ...el, points: movedPts, radius: el.radius ? el.radius * scaleFactor : el.radius };
+        });
+        
+        setAppState(p => ({ ...p, elements: newElements, isDrawing: false, drawingPoints: [] }));
+        pushHistory(newElements);
+        logCmd(`SCALE (${scaleFactor.toFixed(2)}x)`);
       }
     }
   };
@@ -412,28 +489,32 @@ export default function App() {
     }
   };
 
-  // Zoom logic
-  const onWheel = (e) => {
-    e.preventDefault();
-    if (e.target.closest('.no-scroll')) return; // exclude panels
-
-    const zoomStep = 0.1;
-    const factor = e.deltaY < 0 ? 1 + zoomStep : 1 - zoomStep;
+  // Zoom logic using passive: false for standard browsers to prevent whole-page scrolling
+  useEffect(() => {
+    const svgEl = svgRef.current;
+    if (!svgEl) return;
     
-    setAppState(p => {
-       const newZoom = Math.min(Math.max(p.zoom * factor, 0.05), 20.0);
-       
-       // Zoom relative to mouse
-       const rect = svgRef.current.getBoundingClientRect();
-       const mouseX = e.clientX - rect.left;
-       const mouseY = e.clientY - rect.top;
-       
-       const newPanX = mouseX - (mouseX - p.panOffset.x) * (newZoom / p.zoom);
-       const newPanY = mouseY - (mouseY - p.panOffset.y) * (newZoom / p.zoom);
-       
-       return { ...p, zoom: newZoom, panOffset: { x: newPanX, y: newPanY } };
-    });
-  };
+    const handleWheel = (e) => {
+      e.preventDefault();
+      const zoomStep = 0.1;
+      const factor = e.deltaY < 0 ? 1 + zoomStep : 1 - zoomStep;
+      
+      setAppState(p => {
+         const newZoom = Math.min(Math.max(p.zoom * factor, 0.05), 20.0);
+         const rect = svgEl.getBoundingClientRect();
+         const mouseX = e.clientX - rect.left;
+         const mouseY = e.clientY - rect.top;
+         
+         const newPanX = mouseX - (mouseX - p.panOffset.x) * (newZoom / p.zoom);
+         const newPanY = mouseY - (mouseY - p.panOffset.y) * (newZoom / p.zoom);
+         
+         return { ...p, zoom: newZoom, panOffset: { x: newPanX, y: newPanY } };
+      });
+    };
+    
+    svgEl.addEventListener('wheel', handleWheel, { passive: false });
+    return () => svgEl.removeEventListener('wheel', handleWheel);
+  }, []);
 
   // Click on element
   const handleObjectClick = (e, el) => {
@@ -521,6 +602,9 @@ export default function App() {
           } else if (el.type === 'rect' || el.type === 'polygon' || el.type === 'polyline') {
              const pts = el.points.map(p => `${p.x},${p.y}`).join(' ');
              shape = el.type === 'polyline' ? <polyline points={pts} fill="none" /> : <polygon points={pts} fill="none" />;
+          } else if (el.type === 'arc') {
+             const [p1, p2, p3] = el.points;
+             shape = <path d={`M ${p1.x} ${p1.y} Q ${p2.x} ${p2.y} ${p3.x} ${p3.y}`} strokeWidth={strokeWidth} fill="none" />;
           }
 
           if (!shape) return null;
@@ -572,6 +656,14 @@ export default function App() {
           const pts = drawingPoints.map(p => `${p.x},${p.y}`).join(' ');
           return <polyline points={pts} stroke="#4a9eff" fill="none" strokeWidth="1" strokeDasharray="5,5" />;
       }
+      if (activeTool === 'arc') {
+          if (drawingPoints.length <= 2) {
+              return <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#4a9eff" strokeWidth="1" strokeDasharray="5,5" />;
+          } else {
+              const mid = drawingPoints[1];
+              return <path d={`M ${p1.x} ${p1.y} Q ${mid.x} ${mid.y} ${p2.x} ${p2.y}`} stroke="#4a9eff" fill="none" strokeWidth="1" strokeDasharray="5,5" />;
+          }
+      }
       if (activeTool === 'box_select') { // UI overlay, actually absolute coords are better, but CAD space is fine
           const w = p2.x - p1.x;
           const h = p2.y - p1.y;
@@ -599,7 +691,13 @@ export default function App() {
           </div>
           <div className="flex items-center gap-4 text-[#8888aa]">
               <i className="fa-solid fa-minus hover:text-white cursor-pointer"></i>
-              <i className="fa-regular fa-window-restore hover:text-white cursor-pointer"></i>
+              <i className="fa-solid fa-expand hover:text-white cursor-pointer" onClick={() => {
+                if (!document.fullscreenElement) {
+                   document.documentElement.requestFullscreen().catch(e => console.log('Fullscreen rejected by browser.'));
+                } else {
+                   document.exitFullscreen();
+                }
+              }} title="Во весь экран"></i>
               <i className="fa-solid fa-xmark hover:text-[#ff4a4a] cursor-pointer text-sm"></i>
           </div>
       </div>
@@ -628,7 +726,6 @@ export default function App() {
               <div className="flex flex-col justify-between border-r border-[#2a3a4a] px-2 py-1 min-w-[280px]">
                   <div className="flex gap-1 pt-1 justify-center">
                       <div className={`tool-btn ${appState.activeTool === 'line' ? 'active' : ''}`} onClick={() => setTool('line', 'LINE')} title="Отрезок [L]"><i className="fa-solid fa-minus"></i><span>Отрезок</span></div>
-                      <div className={`tool-btn ${appState.activeTool === 'polyline' ? 'active' : ''}`} onClick={() => setTool('polyline', 'PLINE')} title="Полилиния [PL]"><i className="fa-solid fa-draw-polygon"></i><span>Полилиния</span></div>
                       <div className={`tool-btn ${appState.activeTool === 'circle' ? 'active' : ''}`} onClick={() => setTool('circle', 'CIRCLE')} title="Круг [C]"><i className="fa-regular fa-circle"></i><span>Круг</span></div>
                       <div className={`tool-btn ${appState.activeTool === 'rect' ? 'active' : ''}`} onClick={() => setTool('rect', 'RECT')} title="Прямоугольник [REC]"><i className="fa-regular fa-square"></i><span>Прямоуг.</span></div>
                       <div className={`tool-btn ${appState.activeTool === 'arc' ? 'active' : ''}`} onClick={() => setTool('arc', 'ARC')} title="Дуга [A]"><i className="fa-solid fa-bezier-curve"></i><span>Дуга</span></div>
@@ -692,7 +789,6 @@ export default function App() {
 
           {/* MAIN CANVAS WORKSPACE */}
           <div className="flex-1 relative overflow-hidden" 
-               onWheel={onWheel}
                style={{ cursor: getCursor() }}>
               
               <svg 
