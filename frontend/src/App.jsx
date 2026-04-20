@@ -40,6 +40,9 @@ export default function App() {
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [activeTab, setActiveTab] = useState('ГЛАВНАЯ');
   const [chatInput, setChatInput] = useState('');
+  const [chatProgress, setChatProgress] = useState({ value: 0, message: '' });
+  const [generatedSVGUrl, setGeneratedSVGUrl] = useState(null);
+  const [currentDXFUrl, setCurrentDXFUrl] = useState('');
   const [cmdInput, setCmdInput] = useState('');
   const [contextMenu, setContextMenu] = useState(null); // { type: 'object'|'canvas', x, y, targetId? }
   const [selectionClipboard, setSelectionClipboard] = useState([]);
@@ -90,6 +93,7 @@ export default function App() {
   };
 
   const svgRef = useRef(null);
+  const ws = useRef(null);
 
   const draftRef = useRef({
     points: [],
@@ -100,6 +104,10 @@ export default function App() {
 
   const stateRef = useRef(appState);
   useEffect(() => { stateRef.current = appState; }, [appState]);
+  useEffect(() => () => {
+    if (ws.current) ws.current.close();
+    if (generatedSVGUrl) URL.revokeObjectURL(generatedSVGUrl);
+  }, [generatedSVGUrl]);
 
   const logCmd = (msg) => {
     setAppState(p => ({ ...p, commandLog: [...p.commandLog, msg].slice(-8) }));
@@ -1233,115 +1241,92 @@ export default function App() {
     return 'default';
   };
 
-  // AI Chat — generates demo elements with proper layer assignment
+  const addMessage = (role, text) => {
+    setAppState(p => ({ ...p, chatMessages: [...p.chatMessages, { role, text }] }));
+  };
+
+  const updateProgress = (progress, message) => {
+    setChatProgress({ value: progress ?? 0, message: message ?? '' });
+    if (message) logCmd(`AI: ${message}`);
+  };
+
+  const clearCanvas = () => {
+    setAppState(p => ({ ...p, elements: [], selectedElements: [] }));
+    pushHistory([]);
+  };
+
+  const insertSVGToCanvas = (svgString) => {
+    if (generatedSVGUrl) URL.revokeObjectURL(generatedSVGUrl);
+    const blob = new Blob([svgString], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    setGeneratedSVGUrl(url);
+
+    const underlay = {
+      id: uuid(),
+      type: 'image',
+      layer: 'Подложка',
+      layerAssigned: true,
+      source: url,
+      points: [{ x: 0, y: 0 }],
+      width: 1200,
+      height: 900
+    };
+
+    setAppState(p => ({
+      ...p,
+      elements: [underlay],
+      selectedElements: [],
+      layers: p.layers.some(l => l.name === 'Подложка')
+        ? p.layers
+        : [...p.layers, { name: 'Подложка', visible: true, locked: false, lw: 0 }]
+    }));
+    pushHistory([underlay]);
+    setTimeout(() => zoomExtents(), 100);
+  };
+
+  // AI Chat — backend WebSocket generation
   const handleChatEnter = () => {
     if (!chatInput.trim()) return;
     const userMsg = chatInput.trim();
     setChatInput('');
-    setAppState(p => ({
-      ...p,
-      chatMessages: [...p.chatMessages, { role: 'user', text: userMsg }],
-    }));
+    addMessage('user', userMsg);
     logCmd("AI_GENERATE");
+    addMessage('assistant', 'Подключаюсь к серверу...');
+    updateProgress(1, 'Инициализация генерации...');
 
-    setTimeout(() => {
-      // Simple keyword-based demo generation with layer assignment
-      const lower = userMsg.toLowerCase();
-      let generated = [];
-      let replyText = '';
+    if (ws.current) ws.current.close();
+    ws.current = new WebSocket(`ws://localhost:8000/api/ws/${Date.now()}`);
 
-      if (lower.includes('план') || lower.includes('комнат') || lower.includes('квартир') || lower.includes('дом')) {
-        // Floor plan demo
-        // Walls
-        generated.push(
-          { id: uuid(), type:'rect', layer:'Стены', layerAssigned: true, points:[{x:0,y:0},{x:400,y:0},{x:400,y:300},{x:0,y:300}] },
-          { id: uuid(), type:'rect', layer:'Стены', layerAssigned: true, points:[{x:50,y:0},{x:200,y:0},{x:200,y:150},{x:50,y:150}] },
-          { id: uuid(), type:'line', layer:'Стены', layerAssigned: true, points:[{x:200,y:0},{x:200,y:150}] },
-          { id: uuid(), type:'line', layer:'Стены', layerAssigned: true, points:[{x:0,y:150},{x:400,y:150}] }
-        );
-        // Doors
-        generated.push(
-          { id: uuid(), type:'arc', layer:'Двери', layerAssigned: true, points:[{x:50,y:150},{x:90,y:110},{x:90,y:150}] },
-          { id: uuid(), type:'arc', layer:'Двери', layerAssigned: true, points:[{x:200,y:80},{x:235,y:80},{x:235,y:115}] }
-        );
-        // Windows
-        generated.push(
-          { id: uuid(), type:'line', layer:'Окна', layerAssigned: true, points:[{x:100,y:0},{x:160,y:0}] },
-          { id: uuid(), type:'line', layer:'Окна', layerAssigned: true, points:[{x:250,y:0},{x:350,y:0}] },
-          { id: uuid(), type:'line', layer:'Окна', layerAssigned: true, points:[{x:0,y:200},{x:0,y:260}] }
-        );
-        // Dimensions
-        generated.push(
-          { id: uuid(), type:'dim', layer:'Размеры', layerAssigned: true, points:[{x:0,y:330},{x:400,y:330}] },
-          { id: uuid(), type:'dim', layer:'Размеры', layerAssigned: true, points:[{x:430,y:0},{x:430,y:300}] }
-        );
-        // Labels
-        generated.push(
-          { id: uuid(), type:'text', layer:'Текст', layerAssigned: true, points:[{x:240,y:80}], text:'Гостиная' },
-          { id: uuid(), type:'text', layer:'Текст', layerAssigned: true, points:[{x:60,y:60}], text:'Спальня' },
-          { id: uuid(), type:'text', layer:'Текст', layerAssigned: true, points:[{x:60,y:230}], text:'Кухня' }
-        );
-        // Furniture
-        generated.push(
-          { id: uuid(), type:'rect', layer:'Мебель', layerAssigned: true, points:[{x:210,y:10},{x:300,y:10},{x:300,y:60},{x:210,y:60}] },
-          { id: uuid(), type:'circle', layer:'Мебель', layerAssigned: true, points:[{x:330,y:210}], radius:30 }
-        );
-        replyText = `✅ Сгенерирован план помещения!\n\nОбъекты автоматически размещены по слоям:\n• Стены — основные стены\n• Двери — дверные проёмы (дуги)\n• Окна — оконные проёмы\n• Мебель — предметы мебели\n• Текст — подписи помещений\n• Размеры — размерные линии\n\nИспользуйте панель слоёв справа для управления видимостью.`;
-      } else if (lower.includes('круг') || lower.includes('деталь') || lower.includes('фланец') || lower.includes('шестерн')) {
-        // Circular mechanical part
-        generated.push(
-          { id: uuid(), type:'circle', layer:'Стены', layerAssigned: true, points:[{x:0,y:0}], radius:120 },
-          { id: uuid(), type:'circle', layer:'Стены', layerAssigned: true, points:[{x:0,y:0}], radius:80 },
-          { id: uuid(), type:'circle', layer:'Стены', layerAssigned: true, points:[{x:0,y:0}], radius:20 },
-          { id: uuid(), type:'circle', layer:'Мебель', layerAssigned: true, points:[{x:90,y:0}], radius:10 },
-          { id: uuid(), type:'circle', layer:'Мебель', layerAssigned: true, points:[{x:-90,y:0}], radius:10 },
-          { id: uuid(), type:'circle', layer:'Мебель', layerAssigned: true, points:[{x:0,y:90}], radius:10 },
-          { id: uuid(), type:'circle', layer:'Мебель', layerAssigned: true, points:[{x:0,y:-90}], radius:10 }
-        );
-        generated.push(
-          { id: uuid(), type:'dim', layer:'Размеры', layerAssigned: true, points:[{x:-120,y:150},{x:120,y:150}] },
-          { id: uuid(), type:'text', layer:'Текст', layerAssigned: true, points:[{x:-40,y:-150}], text:'Фланец Ø240' },
-          { id: uuid(), type:'leader', layer:'Текст', layerAssigned: true, points:[{x:20,y:0},{x:60,y:-50}], text:'Ø40 отв.' }
-        );
-        replyText = `✅ Сгенерирована деталь!\n\nОбъекты размещены по слоям:\n• Стены — основные контуры\n• Мебель — крепёжные отверстия\n• Размеры — размерные линии\n• Текст — надписи и выноски`;
+    ws.current.onopen = () => {
+      ws.current.send(JSON.stringify({ prompt: userMsg }));
+    };
+
+    ws.current.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.stage === 'done') {
+        clearCanvas();
+        insertSVGToCanvas(data.svg);
+        setCurrentDXFUrl(data.download_url || '');
+        setChatProgress({ value: 100, message: 'Готово' });
+        addMessage('assistant', data.message || 'Чертеж готов.');
+        logCmd(`AI: готово, DXF ${data.download_url || ''}`);
+      } else if (data.stage === 'error') {
+        addMessage('assistant', `Ошибка: ${data.message}`);
+        logCmd(`AI_ERROR: ${data.message}`);
+        setChatProgress({ value: 0, message: '' });
       } else {
-        // Generic: just a box with some annotations
-        generated.push(
-          { id: uuid(), type:'rect', layer:'Стены', layerAssigned: true, points:[{x:-100,y:-80},{x:100,y:-80},{x:100,y:80},{x:-100,y:80}] },
-          { id: uuid(), type:'line', layer:'Штриховка', layerAssigned: true, points:[{x:-100,y:0},{x:100,y:0}] },
-          { id: uuid(), type:'line', layer:'Штриховка', layerAssigned: true, points:[{x:0,y:-80},{x:0,y:80}] },
-          { id: uuid(), type:'dim', layer:'Размеры', layerAssigned: true, points:[{x:-100,y:100},{x:100,y:100}] },
-          { id: uuid(), type:'text', layer:'Текст', layerAssigned: true, points:[{x:-60,y:-30}], text:userMsg.slice(0,20) }
-        );
-        replyText = `✅ Создан чертёж по запросу: "${userMsg}"\n\nОбъекты автоматически распределены по слоям.\nЧтобы изменить слой объекта — выделите его и нажмите кнопку «Назначить слой» в панели слоёв.`;
+        updateProgress(data.progress, data.message);
       }
+    };
 
+    ws.current.onerror = () => {
+      addMessage('assistant', 'Ошибка WebSocket подключения к backend.');
+      setChatProgress({ value: 0, message: '' });
+    };
 
-      // Collect new layer names from generated elements
-      const newLayerNames = [...new Set(generated.map(el => el.layer))];
-
-      setAppState(p => {
-        // Ensure all required layers exist
-        const lwMap = { 'Стены':0.35,'Двери':0.25,'Окна':0.25,'Размеры':0.13,'Мебель':0.18,'Текст':0.13,'Штриховка':0.09,'Подложка':0.0 };
-        let updatedLayers = [...p.layers];
-        newLayerNames.forEach(ln => {
-          if (!updatedLayers.some(l => l.name === ln)) {
-            updatedLayers.push({ name: ln, visible: true, locked: false, lw: lwMap[ln] || 0.25 });
-          }
-        });
-        const newElements = [...p.elements, ...generated];
-        return {
-          ...p,
-          elements: newElements,
-          layers: updatedLayers,
-          chatMessages: [...p.chatMessages, { role: 'assistant', text: replyText }]
-        };
-      });
-
-      pushHistory([...appState.elements, ...generated]);
-      logCmd(`AI: создано ${generated.length} объектов на ${[...new Set(generated.map(e=>e.layer))].length} слоях`);
-      setTimeout(() => zoomExtents(), 100);
-    }, 1200);
+    ws.current.onclose = () => {
+      ws.current = null;
+    };
   };
 
   const toggleLayerAttr = (layerName, attr) => {
@@ -2063,6 +2048,28 @@ export default function App() {
             </div>
 
             <div style={{ padding: 12, borderTop: '1px solid #1e2a3a', background: '#0a0a18' }}>
+              {chatProgress.value > 0 && chatProgress.value < 100 && (
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ fontSize: 11, color: '#8ba0c2', marginBottom: 4 }}>
+                    {chatProgress.message || 'Генерация...'} ({chatProgress.value}%)
+                  </div>
+                  <div style={{ height: 6, borderRadius: 99, background: '#121b2e', overflow: 'hidden' }}>
+                    <div style={{ width: `${chatProgress.value}%`, height: '100%', background: 'linear-gradient(90deg, #3b82f6, #4a9eff)' }} />
+                  </div>
+                </div>
+              )}
+              {currentDXFUrl && (
+                <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'flex-end' }}>
+                  <a
+                    href={`http://localhost:8000${currentDXFUrl}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ color: '#4a9eff', fontSize: 12, textDecoration: 'none' }}
+                  >
+                    Скачать DXF
+                  </a>
+                </div>
+              )}
               <div style={{ display: 'flex', background: '#0e1020', border: '1px solid #1e2a3a', borderRadius: 10, overflow: 'hidden' }}
                 onFocus={e => e.currentTarget.style.borderColor = '#4a9eff'}
                 onBlur={e => e.currentTarget.style.borderColor = '#1e2a3a'}

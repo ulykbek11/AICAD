@@ -1,4 +1,8 @@
 fastapi
 uvicorn
-pydantic
+python-dotenv
 ezdxf
+google-generativeai
+Pillow
+python-multipart
+websockets
