@@ -98,25 +98,182 @@ export default function App() {
     setAppState(p => ({ ...p, commandLog: [...p.commandLog, msg].slice(-8) }));
   };
 
+  // ─── Core: build a cleaned SVG string with only user objects on white bg ───
+  const buildCleanSvgString = () => {
+    const svgEl = svgRef.current;
+    if (!svgEl) return null;
+
+    // ── 1. Compute bounding box of all user elements in CAD coordinates ──
+    const { elements, layers, zoom, panOffset } = stateRef.current;
+    const visibleEls = elements.filter(el => {
+      const layer = layers.find(l => l.name === el.layer);
+      return layer && layer.visible;
+    });
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    visibleEls.forEach(el => {
+      if (el.points) {
+        el.points.forEach(p => {
+          if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+          if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+        });
+      }
+      if (el.type === 'circle' && el.radius) {
+        const c = el.points[0];
+        if (c.x - el.radius < minX) minX = c.x - el.radius;
+        if (c.x + el.radius > maxX) maxX = c.x + el.radius;
+        if (c.y - el.radius < minY) minY = c.y - el.radius;
+        if (c.y + el.radius > maxY) maxY = c.y + el.radius;
+      }
+    });
+
+    // If no elements, use current visible viewport
+    const hasContent = minX !== Infinity;
+    const pad = 40; // padding in CAD units
+    const cadMinX = hasContent ? minX - pad : (-panOffset.x / zoom) - 50;
+    const cadMinY = hasContent ? minY - pad : (-panOffset.y / zoom) - 50;
+    const cadW    = hasContent ? (maxX - minX + pad * 2) : 400;
+    const cadH    = hasContent ? (maxY - minY + pad * 2) : 300;
+
+    // ── 2. Clone SVG ──
+    const cloned = svgEl.cloneNode(true);
+
+    // ── 3. Remove <defs> (grid patterns) ──
+    const defs = cloned.querySelector('defs');
+    if (defs) defs.remove();
+
+    // ── 4. Remove grid background rect (fill="url(#grid)") ──
+    cloned.querySelectorAll('rect').forEach(r => {
+      const f = r.getAttribute('fill') || '';
+      if (f.includes('url(#grid)') || f.includes('url(#smallGrid)')) r.remove();
+    });
+
+    // ── 5. Remove axis cross-hair lines and any element using grid pattern fills ──
+    cloned.querySelectorAll('line').forEach(l => {
+      const s = l.getAttribute('stroke') || '';
+      if (s === '#ff4444' || s === '#4444ff') l.remove();
+    });
+
+    // ── 6. Remap dark-theme colors → engineering drawing colors ──
+    // White strokes → dark navy
+    const remapColor = (col) => {
+      if (!col || col === 'none' || col === 'transparent') return col;
+      const c = col.toLowerCase();
+      if (c === '#ffffff' || c === 'white') return '#1a1a2e';
+      if (c === '#4a9eff') return '#0055cc'; // selection/dim blue
+      if (c === '#4aff4a') return '#008800'; // crossing selection green
+      return col;
+    };
+    cloned.querySelectorAll('*').forEach(el => {
+      ['stroke', 'fill'].forEach(attr => {
+        const v = el.getAttribute(attr);
+        if (v) {
+          const remapped = remapColor(v);
+          if (remapped !== v) el.setAttribute(attr, remapped);
+        }
+      });
+      // Also handle inline style
+      const style = el.getAttribute('style') || '';
+      if (style) {
+        const cleaned = style
+          .replace(/stroke:\s*#ffffff/gi, 'stroke:#1a1a2e')
+          .replace(/fill:\s*#ffffff/gi, 'fill:#1a1a2e')
+          .replace(/stroke:\s*white/gi, 'stroke:#1a1a2e')
+          .replace(/fill:\s*white/gi, 'fill:#1a1a2e');
+        if (cleaned !== style) el.setAttribute('style', cleaned);
+      }
+    });
+
+    // ── 7. Set viewBox so elements fill the output ──
+    // viewBox is in CAD units; the transform g applies translate+scale
+    // We need to account for panOffset & zoom: screen_x = cad_x * zoom + panX
+    // So cad_x = (screen_x - panX) / zoom  ← already computed above
+    cloned.setAttribute('viewBox', `${cadMinX * zoom + panOffset.x} ${cadMinY * zoom + panOffset.y} ${cadW * zoom} ${cadH * zoom}`);
+    cloned.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    cloned.removeAttribute('style');
+    cloned.style.cssText = '';
+
+    // ── 8. Insert white background rect as first child ──
+    const ns = 'http://www.w3.org/2000/svg';
+    const bgRect = document.createElementNS(ns, 'rect');
+    bgRect.setAttribute('x', String(cadMinX * zoom + panOffset.x));
+    bgRect.setAttribute('y', String(cadMinY * zoom + panOffset.y));
+    bgRect.setAttribute('width', String(cadW * zoom));
+    bgRect.setAttribute('height', String(cadH * zoom));
+    bgRect.setAttribute('fill', '#ffffff');
+    cloned.insertBefore(bgRect, cloned.firstChild);
+
+    return new XMLSerializer().serializeToString(cloned);
+  };
+
+  // ─── Print: opens popup with ONLY the drawing, then browser print dialog ───
+  const printCanvas = () => {
+    logCmd('_PLOT');
+    const svgString = buildCleanSvgString();
+    if (!svgString) { logCmd('Нет чертежа для печати'); return; }
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>AICAD — Печать чертежа</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; background: #fff; }
+    svg { display: block; width: 100%; height: 100%; }
+    @media print {
+      @page { margin: 10mm; size: A4 landscape; }
+    }
+  </style>
+</head>
+<body>${svgString}</body>
+</html>`;
+
+    const win = window.open('', '_blank', 'width=1200,height=900');
+    if (!win) { logCmd('Разрешите всплывающие окна браузера'); return; }
+    win.document.write(html);
+    win.document.close();
+    win.onload = () => { win.focus(); win.print(); };
+    setTimeout(() => { try { win.focus(); win.print(); } catch(e) {} }, 700);
+    logCmd('Диалог печати — только объекты, без сетки');
+  };
+
+  // ─── Export SVG: auto-downloads drawing.svg instantly ───────────────────
+  const exportPDF = () => {
+    logCmd('_EXPORTPDF');
+    const svgString = buildCleanSvgString();
+    if (!svgString) { logCmd('Нет объектов для экспорта'); return; }
+
+    const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'drawing.svg';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    logCmd('Сохранено: drawing.svg (откройте в браузере для экспорта в PDF)');
+  };
+
   const executeAction = (actionName, cmdLog) => {
-    logCmd(`_${cmdLog}`);
     switch(actionName) {
-      case 'print': window.print(); break;
-      case 'pdf':
-        logCmd("Печать → выберите 'Сохранить как PDF' в диалоге.");
-        window.print();
-        break;
+      case 'print': printCanvas(); break;
+      case 'pdf': exportPDF(); break;
       case 'block': 
+        logCmd(`_${cmdLog}`);
         setIsBlockModalOpen(true); 
         break;
       case 'image': 
+        logCmd(`_${cmdLog}`);
         if(fileInputRef.current) fileInputRef.current.click(); 
         break;
       case 'pdfattach': 
+        logCmd(`_${cmdLog}`);
         if(pdfInputRef.current) pdfInputRef.current.click(); 
         break;
-      case 'leader': setTool('leader', 'MLEADER'); break;
-      case 'table': setTool('table', 'TABLE'); break;
+      case 'leader': logCmd(`_${cmdLog}`); setTool('leader', 'MLEADER'); break;
+      case 'table': logCmd(`_${cmdLog}`); setTool('table', 'TABLE'); break;
       default: break;
     }
   };
@@ -956,7 +1113,7 @@ export default function App() {
       case 'Z': case 'ZOOM': case 'ZE': zoomExtents(); break;
       case 'PAN': setTool('pan', 'PAN'); break;
       case 'SELECT': case 'ESC': setTool('select'); break;
-      case 'PRINT': case 'PLOT': window.print(); break;
+      case 'PRINT': case 'PLOT': printCanvas(); break;
       case 'HELP':
         logCmd("Команды: L=Линия, C=Круг, REC=Прямоуг., A=Дуга, M=Перемещ., CO=Копир., RO=Поворот, SC=Масштаб, TR=Обрезка, E=Удаление, T=Текст, DIM=Размер, U=Отмена, Z=Зум, PAN=Панорама, PRINT=Печать");
         break;

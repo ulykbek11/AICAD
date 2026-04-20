@@ -162,5 +162,7 @@
 }
 
 @media print {
-  .no-print { display: none !important; }
+  /* Hide all UI — printing is handled via popup window with only the SVG canvas */
+  body > * { display: none !important; }
+  .print-canvas-only { display: block !important; }
 }
