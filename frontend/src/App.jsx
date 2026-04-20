@@ -115,8 +115,8 @@ export default function App() {
       case 'pdfattach': 
         if(pdfInputRef.current) pdfInputRef.current.click(); 
         break;
-      case 'leader': logCmd("Выноска — в разработке."); break;
-      case 'table': logCmd("Таблица — в разработке."); break;
+      case 'leader': setTool('leader', 'MLEADER'); break;
+      case 'table': setTool('table', 'TABLE'); break;
       default: break;
     }
   };
@@ -416,6 +416,10 @@ export default function App() {
     } else if (appState.activeTool === 'box_select' && appState.isDrawing) {
       draftRef.current.tempPoint = cadPt;
       setAppState(p => ({ ...p, drawingPoints: [...draftRef.current.points, cadPt] }));
+    } else if (appState.activeTool === 'drag_objects' && appState.isDrawing) {
+      draftRef.current.tempPoint = cadPt;
+      draftRef.current.didDrag = true;
+      setAppState(p => ({ ...p, drawingPoints: [...draftRef.current.points, cadPt] }));
     } else if (appState.isDrawing) {
       draftRef.current.tempPoint = cadPt;
       setAppState(p => ({ ...p, drawingPoints: [...draftRef.current.points, cadPt] }));
@@ -563,6 +567,40 @@ export default function App() {
         logCmd(`DIM ${dist(p1,p2).toFixed(2)}`);
       }
     }
+    else if (appState.activeTool === 'leader') {
+      if (!appState.isDrawing) {
+        draftRef.current.points = [pt];
+        setAppState(p => ({ ...p, isDrawing: true, drawingPoints: [pt, pt] }));
+      } else {
+        const p1 = draftRef.current.points[0];
+        const p2 = pt;
+        const textVal = window.prompt("Введите текст выноски:");
+        if (textVal) {
+          const newEl = { id: uuid(), type: 'leader', layer: appState.activeLayer, points: [p1, p2], text: textVal };
+          const newElements = [...appState.elements, newEl];
+          setAppState(p => ({ ...p, elements: newElements, isDrawing: false, drawingPoints: [], activeTool: 'select' }));
+          pushHistory(newElements);
+          logCmd(`LEADER "${textVal}"`);
+        } else {
+          setAppState(p => ({ ...p, isDrawing: false, drawingPoints: [], activeTool: 'select' }));
+        }
+      }
+    }
+    else if (appState.activeTool === 'table') {
+      const rowsStr = window.prompt("Введите количество строк:", "3");
+      const colsStr = window.prompt("Введите количество столбцов:", "3");
+      const rows = parseInt(rowsStr, 10);
+      const cols = parseInt(colsStr, 10);
+      if (!isNaN(rows) && !isNaN(cols) && rows > 0 && cols > 0) {
+        const newEl = { id: uuid(), type: 'table', layer: appState.activeLayer, points: [pt], rows, cols, cellW: 100, cellH: 30, cellData: {} };
+        const newElements = [...appState.elements, newEl];
+        setAppState(p => ({ ...p, elements: newElements, activeTool: 'select' }));
+        pushHistory(newElements);
+        logCmd(`TABLE ${rows}x${cols}`);
+      } else {
+        setAppState(p => ({ ...p, activeTool: 'select' }));
+      }
+    }
     else if (appState.activeTool === 'erase') {
       // handled by element click
     }
@@ -658,6 +696,40 @@ export default function App() {
   };
 
   const onMouseUp = (e) => {
+    const cadPt = getCadCoords(e);
+    
+    if (appState.activeTool === 'drag_objects') {
+      const p1 = draftRef.current.points[0];
+      const p2 = draftRef.current.tempPoint || cadPt;
+      const dx = p2.x - p1.x;
+      const dy = p2.y - p1.y;
+
+      // If dragged enough to be a move
+      if (draftRef.current.didDrag && (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5)) {
+        const selSet = new Set(appState.selectedElements);
+        const newElements = appState.elements.map(el => {
+          if (!selSet.has(el.id)) return el;
+          const movedPts = el.points?.map(p => ({x: p.x + dx, y: p.y + dy}));
+          return { ...el, points: movedPts };
+        });
+        setAppState(p => ({ ...p, elements: newElements, activeTool: 'select', isDrawing: false, drawingPoints: [] }));
+        pushHistory(newElements);
+        logCmd(`DRAG-MOVE (${dx.toFixed(1)}, ${dy.toFixed(1)})`);
+      } else {
+        // Just clicked on object, complete selection logic
+        let newSelected = appState.selectedElements;
+        if (e.shiftKey && !draftRef.current.clickedJustNow && draftRef.current.clickTarget) {
+           newSelected = newSelected.filter(id => id !== draftRef.current.clickTarget);
+        } else if (!e.shiftKey && !draftRef.current.clickedJustNow && newSelected.length > 1) {
+           newSelected = [draftRef.current.clickTarget];
+        }
+        setAppState(p => ({ ...p, activeTool: 'select', isDrawing: false, drawingPoints: [], selectedElements: newSelected }));
+      }
+      draftRef.current.didDrag = false;
+      draftRef.current.clickTarget = null;
+      return;
+    }
+
     if (appState.activeTool === 'box_select' && appState.isDrawing) {
       const p1 = draftRef.current.points[0];
       const p2 = draftRef.current.tempPoint;
@@ -750,8 +822,28 @@ export default function App() {
     });
   };
 
-  // Click on element
-  const handleObjectClick = (e, el) => {
+  const handleTableCellDoubleClick = (e, el, r, c) => {
+    e.stopPropagation();
+    const layerInfo = appState.layers.find(l => l.name === el.layer);
+    if (!layerInfo || layerInfo.locked) return;
+
+    const currentText = el.cellData?.[`${r},${c}`] || '';
+    const newText = window.prompt("Введите текст ячейки:", currentText);
+    if (newText !== null) {
+      const newElements = appState.elements.map(x => {
+        if (x.id === el.id) {
+          return { ...x, cellData: { ...(x.cellData || {}), [`${r},${c}`]: newText } };
+        }
+        return x;
+      });
+      setAppState(p => ({ ...p, elements: newElements }));
+      pushHistory(newElements);
+      logCmd(`Изменена ячейка ${r + 1}x${c + 1}`);
+    }
+  };
+
+  // Handle mouse down on a specific CAD element
+  const handleObjectMouseDown = (e, el) => {
     e.stopPropagation();
     const layerInfo = appState.layers.find(l => l.name === el.layer);
     if (!layerInfo || layerInfo.locked) return;
@@ -773,18 +865,43 @@ export default function App() {
     }
 
     if (['select', 'move', 'copy', 'rotate', 'scale'].includes(appState.activeTool)) {
-      setAppState(p => ({
-        ...p,
-        selectedElements: e.shiftKey
-          ? (p.selectedElements.includes(el.id) ? p.selectedElements.filter(id => id !== el.id) : [...p.selectedElements, el.id])
-          : [el.id]
-      }));
+      if (appState.activeTool === 'select') {
+        let newSelected = appState.selectedElements;
+        let clickedJustNow = false;
+        
+        if (!newSelected.includes(el.id)) {
+          newSelected = e.shiftKey ? [...newSelected, el.id] : [el.id];
+          clickedJustNow = true;
+        }
+
+        const cadPt = getCadCoords(e);
+        draftRef.current.points = [cadPt];
+        draftRef.current.tempPoint = cadPt;
+        draftRef.current.clickTarget = el.id;
+        draftRef.current.clickedJustNow = clickedJustNow;
+        draftRef.current.didDrag = false;
+
+        setAppState(p => ({
+          ...p,
+          selectedElements: newSelected,
+          activeTool: 'drag_objects',
+          isDrawing: true,
+          drawingPoints: [cadPt, cadPt]
+        }));
+      } else {
+        setAppState(p => ({
+          ...p,
+          selectedElements: e.shiftKey
+            ? (p.selectedElements.includes(el.id) ? p.selectedElements.filter(id => id !== el.id) : [...p.selectedElements, el.id])
+            : [el.id]
+        }));
+      }
     }
   };
 
   const getCursor = () => {
     if (appState.activeTool === 'pan') return appState.isDrawing ? 'grabbing' : 'grab';
-    if (['line','polyline','circle','rect','arc','polygon','box_select','text','dim'].includes(appState.activeTool)) return 'crosshair';
+    if (['line','polyline','circle','rect','arc','polygon','box_select','text','dim','leader','table'].includes(appState.activeTool)) return 'crosshair';
     if (appState.activeTool === 'erase' || appState.activeTool === 'trim') return 'cell';
     return 'default';
   };
@@ -832,6 +949,8 @@ export default function App() {
       case 'E': case 'ERASE': setTool('erase', 'ERASE'); break;
       case 'T': case 'TEXT': case 'MTEXT': setTool('text', 'MTEXT'); break;
       case 'DIM': case 'D': case 'DIMALIGNED': setTool('dim', 'DIMALIGNED'); break;
+      case 'LEADER': case 'MLEADER': setTool('leader', 'MLEADER'); break;
+      case 'TABLE': setTool('table', 'TABLE'); break;
       case 'U': case 'UNDO': undo(); break;
       case 'REDO': redo(); break;
       case 'Z': case 'ZOOM': case 'ZE': zoomExtents(); break;
@@ -889,18 +1008,67 @@ export default function App() {
             <text x={midX} y={midY - 5/appState.zoom} fill={isSelected ? '#4a9eff' : '#ffffff'} fontSize={12/appState.zoom} textAnchor="middle" style={{ userSelect: 'none' }}>{distance}</text>
           </g>
         );
+      } else if (el.type === 'leader') {
+        const [p1, p2] = el.points;
+        const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+        const arrowLen = 10 / appState.zoom;
+        const arrowPt1 = { x: p1.x + arrowLen * Math.cos(angle + Math.PI / 8), y: p1.y + arrowLen * Math.sin(angle + Math.PI / 8) };
+        const arrowPt2 = { x: p1.x + arrowLen * Math.cos(angle - Math.PI / 8), y: p1.y + arrowLen * Math.sin(angle - Math.PI / 8) };
+        const landingLen = 20 / appState.zoom;
+        const dir = p2.x > p1.x ? 1 : -1;
+        const p3 = { x: p2.x + landingLen * dir, y: p2.y };
+        shape = (
+          <g>
+            <polyline points={`${p1.x},${p1.y} ${p2.x},${p2.y} ${p3.x},${p3.y}`} stroke={isSelected ? '#4a9eff' : '#ffffff'} strokeWidth={strokeWidth} fill="none" />
+            <polygon points={`${p1.x},${p1.y} ${arrowPt1.x},${arrowPt1.y} ${arrowPt2.x},${arrowPt2.y}`} fill={isSelected ? '#4a9eff' : '#ffffff'} />
+            <text x={p3.x + (dir > 0 ? 5/appState.zoom : -5/appState.zoom)} y={p3.y + 4/appState.zoom} fill={isSelected ? '#4a9eff' : '#ffffff'} fontSize={12/appState.zoom} textAnchor={dir > 0 ? "start" : "end"} style={{ userSelect: 'none' }}>{el.text}</text>
+          </g>
+        );
+      } else if (el.type === 'table') {
+        const pt = el.points[0];
+        const lines = [];
+        const cellTexts = [];
+        const w = el.cellW;
+        const h = el.cellH;
+        for (let i = 0; i <= el.rows; i++) {
+          lines.push(<line key={`h${i}`} x1={pt.x} y1={pt.y + i*h} x2={pt.x + el.cols*w} y2={pt.y + i*h} stroke={isSelected ? '#4a9eff' : '#ffffff'} strokeWidth={strokeWidth} />);
+        }
+        for (let j = 0; j <= el.cols; j++) {
+          lines.push(<line key={`v${j}`} x1={pt.x + j*w} y1={pt.y} x2={pt.x + j*w} y2={pt.y + el.rows*h} stroke={isSelected ? '#4a9eff' : '#ffffff'} strokeWidth={strokeWidth} />);
+        }
+        for (let r = 0; r < el.rows; r++) {
+          for (let c = 0; c < el.cols; c++) {
+            const key = `${r},${c}`;
+            const text = el.cellData?.[key] || '';
+            const cx = pt.x + c * w;
+            const cy = pt.y + r * h;
+            cellTexts.push(
+              <g key={`cell_${key}`}>
+                <rect 
+                  x={cx} y={cy} width={w} height={h} fill="transparent"
+                  pointerEvents="all"
+                  onDoubleClick={(e) => handleTableCellDoubleClick(e, el, r, c)}
+                />
+                <text x={cx + w/2} y={cy + h/2 + 4/appState.zoom} fill={isSelected ? '#4a9eff' : '#ffffff'} fontSize={12/appState.zoom} textAnchor="middle" style={{ pointerEvents: 'none', userSelect: 'none' }}>
+                  {text}
+                </text>
+              </g>
+            );
+          }
+        }
+        shape = <g>{lines}{cellTexts}</g>;
       }
 
       if (!shape) return null;
 
-      const isSpecial = ['text', 'dim', 'image', 'pdf'].includes(el.type);
+      const isSpecial = ['text', 'dim', 'image', 'pdf', 'leader', 'table'].includes(el.type);
 
       return (
         <g
           key={el.id}
           className={`cad-object ${layer.locked ? 'locked' : ''}`}
           style={{ pointerEvents: layer.locked ? 'none' : 'auto' }}
-          onClick={(e) => handleObjectClick(e, el)}
+          onMouseDown={(e) => handleObjectMouseDown(e, el)}
         >
           {isSpecial ? null : React.cloneElement(shape, { stroke: "transparent", strokeWidth: 10/appState.zoom, pointerEvents: "stroke", fill: "none" })}
           {isSpecial ? shape : React.cloneElement(shape, { stroke: isSelected ? '#4a9eff' : '#ffffff', strokeWidth: strokeWidth, fill: "none" })}
@@ -958,14 +1126,29 @@ export default function App() {
         </g>
       );
     }
-    if (['move', 'copy', 'rotate', 'scale'].includes(activeTool)) {
+    if (activeTool === 'leader') {
+      const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+      const arrowLen = 10 / appState.zoom;
+      const arrowPt1 = { x: p1.x + arrowLen * Math.cos(angle + Math.PI / 8), y: p1.y + arrowLen * Math.sin(angle + Math.PI / 8) };
+      const arrowPt2 = { x: p1.x + arrowLen * Math.cos(angle - Math.PI / 8), y: p1.y + arrowLen * Math.sin(angle - Math.PI / 8) };
+      const landingLen = 20 / appState.zoom;
+      const dir = p2.x > p1.x ? 1 : -1;
+      const p3 = { x: p2.x + landingLen * dir, y: p2.y };
+      return (
+        <g>
+          <polyline points={`${p1.x},${p1.y} ${p2.x},${p2.y} ${p3.x},${p3.y}`} stroke="#4a9eff" strokeWidth="1" strokeDasharray="5,5" fill="none" />
+          <polygon points={`${p1.x},${p1.y} ${arrowPt1.x},${arrowPt1.y} ${arrowPt2.x},${arrowPt2.y}`} fill="#4a9eff" />
+        </g>
+      );
+    }
+    if (['move', 'copy', 'rotate', 'scale', 'drag_objects'].includes(activeTool)) {
       const { selectedElements, elements } = appState;
       if (selectedElements.length === 0) return null;
       const selElements = elements.filter(e => selectedElements.includes(e.id));
 
       const center = drawingPoints[0];
       let dx = 0, dy = 0, scaleFactor = 1, angle = 0;
-      if (activeTool === 'move' || activeTool === 'copy') {
+      if (activeTool === 'move' || activeTool === 'copy' || activeTool === 'drag_objects') {
         dx = p2.x - center.x;
         dy = p2.y - center.y;
       } else if (activeTool === 'rotate') {
