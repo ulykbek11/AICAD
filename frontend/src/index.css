@@ -81,6 +81,47 @@
     letter-spacing: 0.2px;
   }
 
+  /* Compact context menu (Windows-like) */
+  .context-menu {
+    background: #151d2d;
+    border: 1px solid #2f3d57;
+    border-radius: 6px;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+    padding: 4px;
+  }
+  .context-menu-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 28px;
+    padding: 4px 8px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: #c9d4e8;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+    font-family: 'Inter', sans-serif;
+  }
+  .context-menu-item i {
+    width: 14px;
+    text-align: center;
+    color: #90a8d3;
+    font-size: 13px;
+  }
+  .context-menu-item:hover {
+    background: #22324b;
+    border-color: #3f5d88;
+    color: #ffffff;
+  }
+  .context-menu-separator {
+    height: 1px;
+    background: #26344d;
+    margin: 4px 2px;
+  }
+
   /* Left sidebar buttons */
   .left-btn {
     width: 34px;

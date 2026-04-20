@@ -41,6 +41,10 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('ГЛАВНАЯ');
   const [chatInput, setChatInput] = useState('');
   const [cmdInput, setCmdInput] = useState('');
+  const [contextMenu, setContextMenu] = useState(null); // { type: 'object'|'canvas', x, y, targetId? }
+  const [selectionClipboard, setSelectionClipboard] = useState([]);
+  const [measurementInfo, setMeasurementInfo] = useState(null);
+  const lastMouseCadRef = useRef({ x: 0, y: 0 });
 
   // Insert Feature States
   const [isBlockModalOpen, setIsBlockModalOpen] = useState(false);
@@ -48,6 +52,9 @@ export default function App() {
   const [pendingInsert, setPendingInsert] = useState(null); // { type: 'image'|'pdf'|'block', source: any, width, height, blockId }
   const fileInputRef = useRef(null);
   const pdfInputRef = useRef(null);
+
+  // Layer assignment modal
+  const [isLayerModalOpen, setIsLayerModalOpen] = useState(false);
 
   // Undo/Redo stack
   const [history, setHistory] = useState([[]]);
@@ -398,6 +405,161 @@ export default function App() {
     if (logName) logCmd(`_${logName}`);
   };
 
+  const getElementBounds = (el) => {
+    if (!el) return null;
+    if (el.type === 'circle' && el.points?.[0] && Number.isFinite(el.radius)) {
+      const c = el.points[0];
+      return { minX: c.x - el.radius, minY: c.y - el.radius, maxX: c.x + el.radius, maxY: c.y + el.radius };
+    }
+    if ((el.type === 'image' || el.type === 'pdf' || el.type === 'table') && el.points?.[0]) {
+      const p = el.points[0];
+      const w = Number(el.width ?? (el.cellW * el.cols) ?? 0);
+      const h = Number(el.height ?? (el.cellH * el.rows) ?? 0);
+      return { minX: p.x, minY: p.y, maxX: p.x + w, maxY: p.y + h };
+    }
+    if (!el.points || el.points.length === 0) return null;
+    let minX = Infinity; let minY = Infinity; let maxX = -Infinity; let maxY = -Infinity;
+    el.points.forEach((p) => {
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    });
+    if (!Number.isFinite(minX)) return null;
+    return { minX, minY, maxX, maxY };
+  };
+
+  const getSelectionBounds = (selectedIds) => {
+    if (!selectedIds || selectedIds.length === 0) return null;
+    const idSet = new Set(selectedIds);
+    let minX = Infinity; let minY = Infinity; let maxX = -Infinity; let maxY = -Infinity;
+    appState.elements.forEach((el) => {
+      if (!idSet.has(el.id)) return;
+      const b = getElementBounds(el);
+      if (!b) return;
+      if (b.minX < minX) minX = b.minX;
+      if (b.minY < minY) minY = b.minY;
+      if (b.maxX > maxX) maxX = b.maxX;
+      if (b.maxY > maxY) maxY = b.maxY;
+    });
+    if (!Number.isFinite(minX)) return null;
+    return { minX, minY, maxX, maxY };
+  };
+
+  const showSelectionDimensions = () => {
+    if (appState.selectedElements.length === 0) {
+      logCmd('Для размера сначала выберите объекты');
+      return;
+    }
+    const b = getSelectionBounds(appState.selectedElements);
+    if (!b) {
+      logCmd('Не удалось вычислить размер выбранных объектов');
+      return;
+    }
+    const info = {
+      x: +(b.maxX - b.minX).toFixed(2),
+      y: +(b.maxY - b.minY).toFixed(2),
+      z: 0,
+      count: appState.selectedElements.length,
+    };
+    setMeasurementInfo(info);
+    logCmd(`Размер: X=${info.x}, Y=${info.y}, Z=${info.z}`);
+  };
+
+  const copySelectionToClipboard = (cut = false) => {
+    if (stateRef.current.selectedElements.length === 0) {
+      logCmd('Сначала выберите объекты для копирования');
+      return;
+    }
+    const selSet = new Set(stateRef.current.selectedElements);
+    const copied = stateRef.current.elements
+      .filter((el) => selSet.has(el.id))
+      .map((el) => JSON.parse(JSON.stringify(el)));
+    setSelectionClipboard(copied);
+    if (cut) {
+      const newElements = stateRef.current.elements.filter((el) => !selSet.has(el.id));
+      setAppState((p) => ({ ...p, elements: newElements, selectedElements: [], activeTool: 'select' }));
+      pushHistory(newElements);
+      logCmd(`Вырезано ${copied.length} объектов`);
+    } else {
+      logCmd(`Скопировано ${copied.length} объектов`);
+    }
+  };
+
+  const pasteClipboard = (targetPoint = null) => {
+    if (selectionClipboard.length === 0) {
+      logCmd('Буфер обмена пуст');
+      return;
+    }
+    const srcBounds = (() => {
+      let minX = Infinity; let minY = Infinity; let maxX = -Infinity; let maxY = -Infinity;
+      selectionClipboard.forEach((el) => {
+        const b = getElementBounds(el);
+        if (!b) return;
+        if (b.minX < minX) minX = b.minX;
+        if (b.minY < minY) minY = b.minY;
+        if (b.maxX > maxX) maxX = b.maxX;
+        if (b.maxY > maxY) maxY = b.maxY;
+      });
+      if (!Number.isFinite(minX)) return null;
+      return { minX, minY, maxX, maxY };
+    })();
+    if (!srcBounds) return;
+
+    const srcCenter = {
+      x: (srcBounds.minX + srcBounds.maxX) / 2,
+      y: (srcBounds.minY + srcBounds.maxY) / 2,
+    };
+    const dst = targetPoint || { x: srcCenter.x + 20, y: srcCenter.y + 20 };
+    const dx = dst.x - srcCenter.x;
+    const dy = dst.y - srcCenter.y;
+
+    const pasted = selectionClipboard.map((el) => {
+      const newEl = JSON.parse(JSON.stringify(el));
+      newEl.id = uuid();
+      if (newEl.points) {
+        newEl.points = newEl.points.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+      }
+      return newEl;
+    });
+    const currentElements = stateRef.current.elements;
+    const newElements = [...currentElements, ...pasted];
+    setAppState((p) => ({
+      ...p,
+      elements: newElements,
+      selectedElements: pasted.map((el) => el.id),
+      activeTool: 'select',
+    }));
+    pushHistory(newElements);
+    logCmd(`Вставлено ${pasted.length} объектов`);
+  };
+
+  const handleCanvasContextMenu = (e) => {
+    e.preventDefault();
+    setContextMenu({ type: 'canvas', x: e.clientX, y: e.clientY });
+  };
+
+  const handleObjectContextMenu = (e, el) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setAppState((p) => ({
+      ...p,
+      selectedElements: p.selectedElements.includes(el.id) ? p.selectedElements : [el.id],
+      activeTool: 'select',
+    }));
+    setContextMenu({ type: 'object', x: e.clientX, y: e.clientY, targetId: el.id });
+  };
+
+  useEffect(() => {
+    const closeMenu = () => setContextMenu(null);
+    window.addEventListener('click', closeMenu);
+    window.addEventListener('scroll', closeMenu, true);
+    return () => {
+      window.removeEventListener('click', closeMenu);
+      window.removeEventListener('scroll', closeMenu, true);
+    };
+  }, []);
+
   // Math Helpers
   const dist = (p1, p2) => Math.hypot(p2.x - p1.x, p2.y - p1.y);
 
@@ -500,6 +662,8 @@ export default function App() {
       if (e.key === 'Escape') {
         setAppState(p => ({ ...p, activeTool: 'select', isDrawing: false, selectedElements: [] }));
         draftRef.current = { points: [], tempPoint: null, center: null };
+        setContextMenu(null);
+        setMeasurementInfo(null);
       }
       else if (e.key === 'Delete' || e.key === 'Backspace') {
         if (stateRef.current.selectedElements.length > 0) {
@@ -520,6 +684,9 @@ export default function App() {
       if (e.ctrlKey) {
         if (e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
         if (e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
+        if (e.key.toLowerCase() === 'c') { e.preventDefault(); copySelectionToClipboard(false); }
+        if (e.key.toLowerCase() === 'x') { e.preventDefault(); copySelectionToClipboard(true); }
+        if (e.key.toLowerCase() === 'v') { e.preventDefault(); pasteClipboard(lastMouseCadRef.current); }
         if (e.key.toLowerCase() === 'a') {
           e.preventDefault();
           setAppState(p => ({ ...p, selectedElements: p.elements.map(el => el.id) }));
@@ -559,6 +726,7 @@ export default function App() {
   const onMouseMove = (e) => {
     const cadPt = getCadCoords(e);
     setMousePos({ x: cadPt.x, y: cadPt.y });
+    lastMouseCadRef.current = cadPt;
 
     if (appState.activeTool === 'pan' && e.buttons === 1) {
       setAppState(p => ({
@@ -604,6 +772,7 @@ export default function App() {
           const newEl = JSON.parse(JSON.stringify(el));
           newEl.id = uuid();
           newEl.groupId = blockData.id;
+          newEl.layerAssigned = false;
           if(newEl.points) {
             newEl.points.forEach(p => { p.x += pt.x; p.y += pt.y; });
           }
@@ -614,11 +783,12 @@ export default function App() {
         pushHistory(newElements);
         logCmd(`Вставлен блок "${blockData.name}"`);
       } else if (pendingInsert.type === 'image' || pendingInsert.type === 'pdf') {
-        const scale = 200 / pendingInsert.width; // Normalize size somewhat
+        const scale = 200 / pendingInsert.width;
         const newEl = {
           id: uuid(),
           type: pendingInsert.type,
           layer: pendingInsert.type === 'pdf' ? 'Подложка' : appState.activeLayer,
+          layerAssigned: false,
           points: [pt],
           width: pendingInsert.width * scale,
           height: pendingInsert.height * scale,
@@ -640,7 +810,7 @@ export default function App() {
         setAppState(p => ({ ...p, isDrawing: true, drawingPoints: [pt, pt] }));
       } else {
         const newEl = {
-          id: uuid(), type: 'line', layer: appState.activeLayer, points: [draftRef.current.points[0], pt]
+          id: uuid(), type: 'line', layer: appState.activeLayer, layerAssigned: false, points: [draftRef.current.points[0], pt]
         };
         const newElements = [...appState.elements, newEl];
         setAppState(p => ({ ...p, elements: newElements, isDrawing: true, drawingPoints: [pt, pt] }));
@@ -658,7 +828,7 @@ export default function App() {
         setAppState(p => ({ ...p, drawingPoints: [...draftRef.current.points, pt] }));
       } else {
         const pts = [...draftRef.current.points, pt];
-        const newEl = { id: uuid(), type: 'arc', layer: appState.activeLayer, points: pts };
+        const newEl = { id: uuid(), type: 'arc', layer: appState.activeLayer, layerAssigned: false, points: pts };
         const newElements = [...appState.elements, newEl];
         setAppState(p => ({ ...p, elements: newElements, isDrawing: false, drawingPoints: [] }));
         pushHistory(newElements);
@@ -677,7 +847,7 @@ export default function App() {
       } else {
         const center = draftRef.current.points[0];
         const radius = dist(center, pt);
-        const newEl = { id: uuid(), type: 'circle', layer: appState.activeLayer, points: [center], radius };
+        const newEl = { id: uuid(), type: 'circle', layer: appState.activeLayer, layerAssigned: false, points: [center], radius };
         const newElements = [...appState.elements, newEl];
         setAppState(p => ({ ...p, elements: newElements, isDrawing: false, drawingPoints: [] }));
         pushHistory(newElements);
@@ -692,7 +862,7 @@ export default function App() {
         const p1 = draftRef.current.points[0];
         const p2 = pt;
         const newEl = {
-          id: uuid(), type: 'rect', layer: appState.activeLayer,
+          id: uuid(), type: 'rect', layer: appState.activeLayer, layerAssigned: false,
           points: [ {x: p1.x, y: p1.y}, {x: p2.x, y: p1.y}, {x: p2.x, y: p2.y}, {x: p1.x, y: p2.y} ]
         };
         const newElements = [...appState.elements, newEl];
@@ -704,7 +874,7 @@ export default function App() {
     else if (appState.activeTool === 'text') {
       const textVal = window.prompt("Введите текст:");
       if (!textVal) { setTool('select', ''); return; }
-      const newEl = { id: uuid(), type: 'text', layer: appState.activeLayer, points: [pt], text: textVal };
+      const newEl = { id: uuid(), type: 'text', layer: appState.activeLayer, layerAssigned: false, points: [pt], text: textVal };
       const newElements = [...appState.elements, newEl];
       setAppState(p => ({ ...p, elements: newElements, isDrawing: false, drawingPoints: [], activeTool: 'select' }));
       pushHistory(newElements);
@@ -717,7 +887,7 @@ export default function App() {
       } else {
         const p1 = draftRef.current.points[0];
         const p2 = pt;
-        const newEl = { id: uuid(), type: 'dim', layer: appState.activeLayer, points: [p1, p2] };
+        const newEl = { id: uuid(), type: 'dim', layer: appState.activeLayer, layerAssigned: false, points: [p1, p2] };
         const newElements = [...appState.elements, newEl];
         setAppState(p => ({ ...p, elements: newElements, isDrawing: false, drawingPoints: [], activeTool: 'select' }));
         pushHistory(newElements);
@@ -733,7 +903,7 @@ export default function App() {
         const p2 = pt;
         const textVal = window.prompt("Введите текст выноски:");
         if (textVal) {
-          const newEl = { id: uuid(), type: 'leader', layer: appState.activeLayer, points: [p1, p2], text: textVal };
+          const newEl = { id: uuid(), type: 'leader', layer: appState.activeLayer, layerAssigned: false, points: [p1, p2], text: textVal };
           const newElements = [...appState.elements, newEl];
           setAppState(p => ({ ...p, elements: newElements, isDrawing: false, drawingPoints: [], activeTool: 'select' }));
           pushHistory(newElements);
@@ -749,7 +919,7 @@ export default function App() {
       const rows = parseInt(rowsStr, 10);
       const cols = parseInt(colsStr, 10);
       if (!isNaN(rows) && !isNaN(cols) && rows > 0 && cols > 0) {
-        const newEl = { id: uuid(), type: 'table', layer: appState.activeLayer, points: [pt], rows, cols, cellW: 100, cellH: 30, cellData: {} };
+        const newEl = { id: uuid(), type: 'table', layer: appState.activeLayer, layerAssigned: false, points: [pt], rows, cols, cellW: 100, cellH: 30, cellData: {} };
         const newElements = [...appState.elements, newEl];
         setAppState(p => ({ ...p, elements: newElements, activeTool: 'select' }));
         pushHistory(newElements);
@@ -934,7 +1104,7 @@ export default function App() {
 
   const onDoubleClick = (e) => {
     if (['polyline', 'spline', 'polygon'].includes(appState.activeTool)) {
-      const newEl = { id: uuid(), type: appState.activeTool, layer: appState.activeLayer, points: draftRef.current.points };
+      const newEl = { id: uuid(), type: appState.activeTool, layer: appState.activeLayer, layerAssigned: false, points: draftRef.current.points };
       const newElements = [...appState.elements, newEl];
       setAppState(p => ({ ...p, elements: newElements, isDrawing: false, drawingPoints: [] }));
       draftRef.current = { points: [] };
@@ -1063,22 +1233,115 @@ export default function App() {
     return 'default';
   };
 
-  // AI Chat
+  // AI Chat — generates demo elements with proper layer assignment
   const handleChatEnter = () => {
     if (!chatInput.trim()) return;
-    const userMsg = chatInput;
+    const userMsg = chatInput.trim();
     setChatInput('');
     setAppState(p => ({
       ...p,
       chatMessages: [...p.chatMessages, { role: 'user', text: userMsg }],
     }));
     logCmd("AI_GENERATE");
+
     setTimeout(() => {
-      setAppState(p => ({
-        ...p,
-        chatMessages: [...p.chatMessages, { role: 'assistant', text: "Понял! Генерирую план...\nКогда бэкенд будет подключён, здесь появится готовый чертёж." }]
-      }));
-    }, 1500);
+      // Simple keyword-based demo generation with layer assignment
+      const lower = userMsg.toLowerCase();
+      let generated = [];
+      let replyText = '';
+
+      if (lower.includes('план') || lower.includes('комнат') || lower.includes('квартир') || lower.includes('дом')) {
+        // Floor plan demo
+        // Walls
+        generated.push(
+          { id: uuid(), type:'rect', layer:'Стены', layerAssigned: true, points:[{x:0,y:0},{x:400,y:0},{x:400,y:300},{x:0,y:300}] },
+          { id: uuid(), type:'rect', layer:'Стены', layerAssigned: true, points:[{x:50,y:0},{x:200,y:0},{x:200,y:150},{x:50,y:150}] },
+          { id: uuid(), type:'line', layer:'Стены', layerAssigned: true, points:[{x:200,y:0},{x:200,y:150}] },
+          { id: uuid(), type:'line', layer:'Стены', layerAssigned: true, points:[{x:0,y:150},{x:400,y:150}] }
+        );
+        // Doors
+        generated.push(
+          { id: uuid(), type:'arc', layer:'Двери', layerAssigned: true, points:[{x:50,y:150},{x:90,y:110},{x:90,y:150}] },
+          { id: uuid(), type:'arc', layer:'Двери', layerAssigned: true, points:[{x:200,y:80},{x:235,y:80},{x:235,y:115}] }
+        );
+        // Windows
+        generated.push(
+          { id: uuid(), type:'line', layer:'Окна', layerAssigned: true, points:[{x:100,y:0},{x:160,y:0}] },
+          { id: uuid(), type:'line', layer:'Окна', layerAssigned: true, points:[{x:250,y:0},{x:350,y:0}] },
+          { id: uuid(), type:'line', layer:'Окна', layerAssigned: true, points:[{x:0,y:200},{x:0,y:260}] }
+        );
+        // Dimensions
+        generated.push(
+          { id: uuid(), type:'dim', layer:'Размеры', layerAssigned: true, points:[{x:0,y:330},{x:400,y:330}] },
+          { id: uuid(), type:'dim', layer:'Размеры', layerAssigned: true, points:[{x:430,y:0},{x:430,y:300}] }
+        );
+        // Labels
+        generated.push(
+          { id: uuid(), type:'text', layer:'Текст', layerAssigned: true, points:[{x:240,y:80}], text:'Гостиная' },
+          { id: uuid(), type:'text', layer:'Текст', layerAssigned: true, points:[{x:60,y:60}], text:'Спальня' },
+          { id: uuid(), type:'text', layer:'Текст', layerAssigned: true, points:[{x:60,y:230}], text:'Кухня' }
+        );
+        // Furniture
+        generated.push(
+          { id: uuid(), type:'rect', layer:'Мебель', layerAssigned: true, points:[{x:210,y:10},{x:300,y:10},{x:300,y:60},{x:210,y:60}] },
+          { id: uuid(), type:'circle', layer:'Мебель', layerAssigned: true, points:[{x:330,y:210}], radius:30 }
+        );
+        replyText = `✅ Сгенерирован план помещения!\n\nОбъекты автоматически размещены по слоям:\n• Стены — основные стены\n• Двери — дверные проёмы (дуги)\n• Окна — оконные проёмы\n• Мебель — предметы мебели\n• Текст — подписи помещений\n• Размеры — размерные линии\n\nИспользуйте панель слоёв справа для управления видимостью.`;
+      } else if (lower.includes('круг') || lower.includes('деталь') || lower.includes('фланец') || lower.includes('шестерн')) {
+        // Circular mechanical part
+        generated.push(
+          { id: uuid(), type:'circle', layer:'Стены', layerAssigned: true, points:[{x:0,y:0}], radius:120 },
+          { id: uuid(), type:'circle', layer:'Стены', layerAssigned: true, points:[{x:0,y:0}], radius:80 },
+          { id: uuid(), type:'circle', layer:'Стены', layerAssigned: true, points:[{x:0,y:0}], radius:20 },
+          { id: uuid(), type:'circle', layer:'Мебель', layerAssigned: true, points:[{x:90,y:0}], radius:10 },
+          { id: uuid(), type:'circle', layer:'Мебель', layerAssigned: true, points:[{x:-90,y:0}], radius:10 },
+          { id: uuid(), type:'circle', layer:'Мебель', layerAssigned: true, points:[{x:0,y:90}], radius:10 },
+          { id: uuid(), type:'circle', layer:'Мебель', layerAssigned: true, points:[{x:0,y:-90}], radius:10 }
+        );
+        generated.push(
+          { id: uuid(), type:'dim', layer:'Размеры', layerAssigned: true, points:[{x:-120,y:150},{x:120,y:150}] },
+          { id: uuid(), type:'text', layer:'Текст', layerAssigned: true, points:[{x:-40,y:-150}], text:'Фланец Ø240' },
+          { id: uuid(), type:'leader', layer:'Текст', layerAssigned: true, points:[{x:20,y:0},{x:60,y:-50}], text:'Ø40 отв.' }
+        );
+        replyText = `✅ Сгенерирована деталь!\n\nОбъекты размещены по слоям:\n• Стены — основные контуры\n• Мебель — крепёжные отверстия\n• Размеры — размерные линии\n• Текст — надписи и выноски`;
+      } else {
+        // Generic: just a box with some annotations
+        generated.push(
+          { id: uuid(), type:'rect', layer:'Стены', layerAssigned: true, points:[{x:-100,y:-80},{x:100,y:-80},{x:100,y:80},{x:-100,y:80}] },
+          { id: uuid(), type:'line', layer:'Штриховка', layerAssigned: true, points:[{x:-100,y:0},{x:100,y:0}] },
+          { id: uuid(), type:'line', layer:'Штриховка', layerAssigned: true, points:[{x:0,y:-80},{x:0,y:80}] },
+          { id: uuid(), type:'dim', layer:'Размеры', layerAssigned: true, points:[{x:-100,y:100},{x:100,y:100}] },
+          { id: uuid(), type:'text', layer:'Текст', layerAssigned: true, points:[{x:-60,y:-30}], text:userMsg.slice(0,20) }
+        );
+        replyText = `✅ Создан чертёж по запросу: "${userMsg}"\n\nОбъекты автоматически распределены по слоям.\nЧтобы изменить слой объекта — выделите его и нажмите кнопку «Назначить слой» в панели слоёв.`;
+      }
+
+
+      // Collect new layer names from generated elements
+      const newLayerNames = [...new Set(generated.map(el => el.layer))];
+
+      setAppState(p => {
+        // Ensure all required layers exist
+        const lwMap = { 'Стены':0.35,'Двери':0.25,'Окна':0.25,'Размеры':0.13,'Мебель':0.18,'Текст':0.13,'Штриховка':0.09,'Подложка':0.0 };
+        let updatedLayers = [...p.layers];
+        newLayerNames.forEach(ln => {
+          if (!updatedLayers.some(l => l.name === ln)) {
+            updatedLayers.push({ name: ln, visible: true, locked: false, lw: lwMap[ln] || 0.25 });
+          }
+        });
+        const newElements = [...p.elements, ...generated];
+        return {
+          ...p,
+          elements: newElements,
+          layers: updatedLayers,
+          chatMessages: [...p.chatMessages, { role: 'assistant', text: replyText }]
+        };
+      });
+
+      pushHistory([...appState.elements, ...generated]);
+      logCmd(`AI: создано ${generated.length} объектов на ${[...new Set(generated.map(e=>e.layer))].length} слоях`);
+      setTimeout(() => zoomExtents(), 100);
+    }, 1200);
   };
 
   const toggleLayerAttr = (layerName, attr) => {
@@ -1087,6 +1350,45 @@ export default function App() {
       layers: p.layers.map(l => l.name === layerName ? { ...l, [attr]: !l[attr] } : l)
     }));
   };
+
+  const updateLayerLineweight = (layerName, rawValue) => {
+    const numeric = Number(rawValue);
+    if (!Number.isFinite(numeric)) return;
+    const lw = Math.max(0, Math.min(5, numeric));
+    setAppState(p => ({
+      ...p,
+      layers: p.layers.map(l => (l.name === layerName ? { ...l, lw } : l))
+    }));
+  };
+
+  // Assign layer to all selected elements (marks layerAssigned: true so they appear in panel)
+  const assignLayerToSelected = (layerName) => {
+    if (appState.selectedElements.length === 0) return;
+    const selSet = new Set(appState.selectedElements);
+    const newElements = appState.elements.map(el =>
+      selSet.has(el.id) ? { ...el, layer: layerName, layerAssigned: true } : el
+    );
+    setAppState(p => ({ ...p, elements: newElements }));
+    pushHistory(newElements);
+    logCmd(`Слой "${layerName}" назначен ${appState.selectedElements.length} объектам`);
+    setIsLayerModalOpen(false);
+  };
+
+  // Ensure a layer exists (add it if missing)
+  const ensureLayer = (layerName, lw = 0.25) => {
+    setAppState(p => {
+      if (p.layers.some(l => l.name === layerName)) return p;
+      return { ...p, layers: [...p.layers, { name: layerName, visible: true, locked: false, lw }] };
+    });
+  };
+
+  // Only show layers explicitly assigned (by user via modal OR by AI generation)
+  const usedLayerNames = new Set(
+    appState.elements.filter(el => el.layerAssigned === true).map(el => el.layer).filter(Boolean)
+  );
+  const visibleLayersInPanel = appState.layers.filter(l => usedLayerNames.has(l.name));
+  const hasAssignedLayers = visibleLayersInPanel.length > 0;
+  const currentLayerLabel = hasAssignedLayers ? appState.activeLayer : '—';
 
   // Command input handler
   const handleCommand = (v) => {
@@ -1226,6 +1528,7 @@ export default function App() {
           className={`cad-object ${layer.locked ? 'locked' : ''}`}
           style={{ pointerEvents: layer.locked ? 'none' : 'auto' }}
           onMouseDown={(e) => handleObjectMouseDown(e, el)}
+          onContextMenu={(e) => handleObjectContextMenu(e, el)}
         >
           {isSpecial ? null : React.cloneElement(shape, { stroke: "transparent", strokeWidth: 10/appState.zoom, pointerEvents: "stroke", fill: "none" })}
           {isSpecial ? shape : React.cloneElement(shape, { stroke: isSelected ? '#4a9eff' : '#ffffff', strokeWidth: strokeWidth, fill: "none" })}
@@ -1522,7 +1825,7 @@ export default function App() {
             onMouseDown={onMouseDown}
             onMouseUp={onMouseUp}
             onDoubleClick={onDoubleClick}
-            onContextMenu={(e) => e.preventDefault()}
+            onContextMenu={handleCanvasContextMenu}
           >
             <defs>
               <pattern id="smallGrid" width={10 * appState.zoom} height={10 * appState.zoom} patternUnits="userSpaceOnUse" patternTransform={`translate(${appState.panOffset.x}, ${appState.panOffset.y})`}>
@@ -1580,6 +1883,38 @@ export default function App() {
           <div style={{ position: 'absolute', right: 60, bottom: 20, background: 'rgba(20,25,40,0.8)', border: '1px solid #1e2a3a', borderRadius: 6, padding: '3px 8px', fontSize: 11, color: '#6878A0', fontWeight: 500, zIndex: 20 }}>
             {Math.round(appState.zoom * 100)}%
           </div>
+
+          {measurementInfo && (
+            <div
+              style={{
+                position: 'absolute',
+                left: 16,
+                top: 16,
+                zIndex: 30,
+                background: 'rgba(10,16,30,0.95)',
+                border: '1px solid #2e3e54',
+                borderRadius: 8,
+                padding: '10px 12px',
+                minWidth: 190,
+                boxShadow: '0 8px 22px rgba(0,0,0,0.35)',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontSize: 12, color: '#8fb8ff', fontWeight: 700 }}>Размер выделения</span>
+                <i
+                  className="fa-solid fa-xmark"
+                  style={{ cursor: 'pointer', color: '#6f84ad' }}
+                  onClick={() => setMeasurementInfo(null)}
+                />
+              </div>
+              <div style={{ fontSize: 12, color: '#d0d8e8', lineHeight: 1.7 }}>
+                X: <span style={{ color: '#4a9eff' }}>{measurementInfo.x}</span><br />
+                Y: <span style={{ color: '#4a9eff' }}>{measurementInfo.y}</span><br />
+                Z: <span style={{ color: '#4a9eff' }}>{measurementInfo.z}</span><br />
+                Объектов: <span style={{ color: '#8fb8ff' }}>{measurementInfo.count}</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ═══ RIGHT PANEL ═══ */}
@@ -1589,58 +1924,108 @@ export default function App() {
 
           {/* LAYER MANAGER */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderBottom: '1px solid #1e2a3a', minHeight: 0 }}>
-            <div style={{ padding: '12px 16px', borderBottom: '1px solid #1e2a3a' }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: '#e0e8f0', letterSpacing: '0.3px' }}>Слои</div>
-              <div style={{ fontSize: 12, color: '#5568A0', marginTop: 2 }}>
-                Текущий: <span style={{ color: '#4a9eff', fontWeight: 600 }}>{appState.activeLayer}</span>
+            <div style={{ padding: '10px 16px 8px', borderBottom: '1px solid #1e2a3a' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: '#e0e8f0', letterSpacing: '0.3px' }}>Слои</div>
+                {appState.selectedElements.length > 0 && (
+                  <button
+                    onClick={() => setIsLayerModalOpen(true)}
+                    title="Назначить слой выделенным объектам"
+                    style={{
+                      padding: '3px 10px', fontSize: 11, fontWeight: 600,
+                      background: 'rgba(74,158,255,0.15)', border: '1px solid #4a9eff',
+                      borderRadius: 5, color: '#4a9eff', cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', gap: 5,
+                      transition: 'all 0.15s',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(74,158,255,0.3)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'rgba(74,158,255,0.15)'; }}
+                  >
+                    <i className="fa-solid fa-layer-group" style={{ fontSize: 10 }}></i>
+                    Назначить слой
+                  </button>
+                )}
+              </div>
+              <div style={{ fontSize: 12, color: '#5568A0', marginTop: 4 }}>
+                Текущий: <span style={{ color: '#4a9eff', fontWeight: 600 }}>{currentLayerLabel}</span>
+                {appState.selectedElements.length > 0 && (
+                  <span style={{ color: '#6878a0', marginLeft: 8 }}>· Выбрано: {appState.selectedElements.length}</span>
+                )}
               </div>
             </div>
 
-            {hasElements ? (
+            {hasAssignedLayers ? (
               <>
                 {/* Layer table header */}
-                <div style={{ display: 'flex', alignItems: 'center', padding: '6px 16px', fontSize: 11, color: '#5568A0', borderBottom: '1px solid #1a1a2e', fontWeight: 600 }}>
-                  <div style={{ width: 32, textAlign: 'center' }}>Вид</div>
-                  <div style={{ width: 32, textAlign: 'center' }}>Блок</div>
-                  <div style={{ width: 44 }}>Толщ.</div>
-                  <div style={{ flex: 1, marginLeft: 8 }}>Имя</div>
+                <div style={{ display: 'flex', alignItems: 'center', padding: '5px 16px', fontSize: 10, color: '#4a5a7a', borderBottom: '1px solid #1a1a2e', fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase' }}>
+                  <div style={{ width: 28, textAlign: 'center' }}>👁</div>
+                  <div style={{ width: 28, textAlign: 'center' }}>🔒</div>
+                  <div style={{ width: 74, fontSize: 10 }}>Толщ.</div>
+                  <div style={{ flex: 1, marginLeft: 6 }}>Имя слоя</div>
+                  <div style={{ width: 24, textAlign: 'center', fontSize: 10 }}>№</div>
                 </div>
 
-                {/* Layer list */}
+                {/* Layer list — only layers with at least one element */}
                 <div style={{ flex: 1, overflowY: 'auto' }} className="no-scroll">
-                  {appState.layers.map(layer => (
-                    <div
-                      key={layer.name}
-                      onClick={() => setAppState(p => ({ ...p, activeLayer: layer.name }))}
-                      style={{
-                        display: 'flex', alignItems: 'center', padding: '7px 16px', cursor: 'pointer',
-                        fontSize: 13, fontWeight: 400,
-                        borderLeft: appState.activeLayer === layer.name ? '3px solid #4a9eff' : '3px solid transparent',
-                        background: appState.activeLayer === layer.name ? 'rgba(74,158,255,0.08)' : 'transparent',
-                        color: appState.activeLayer === layer.name ? '#e0e8f0' : '#8898b0',
-                        transition: 'all 0.1s',
-                      }}
-                      onMouseEnter={e => { if (appState.activeLayer !== layer.name) e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}
-                      onMouseLeave={e => { if (appState.activeLayer !== layer.name) e.currentTarget.style.background = 'transparent'; }}
-                    >
-                      <div style={{ width: 32, textAlign: 'center' }} onClick={(e) => { e.stopPropagation(); toggleLayerAttr(layer.name, 'visible'); }}>
-                        <i className={`fa-regular ${layer.visible ? 'fa-eye' : 'fa-eye-slash'}`} style={{ color: layer.visible ? '#8898b0' : '#3a3a5a', fontSize: 13 }}></i>
+                  {visibleLayersInPanel.map(layer => {
+                    const count = appState.elements.filter(el => el.layer === layer.name).length;
+                    const isActive = appState.activeLayer === layer.name;
+                    return (
+                      <div
+                        key={layer.name}
+                        onClick={() => setAppState(p => ({ ...p, activeLayer: layer.name }))}
+                        style={{
+                          display: 'flex', alignItems: 'center', padding: '6px 16px', cursor: 'pointer',
+                          fontSize: 12, fontWeight: isActive ? 600 : 400,
+                          borderLeft: isActive ? '3px solid #4a9eff' : '3px solid transparent',
+                          background: isActive ? 'rgba(74,158,255,0.08)' : 'transparent',
+                          color: isActive ? '#e0e8f0' : '#8898b0',
+                          transition: 'all 0.1s',
+                        }}
+                        onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}
+                        onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
+                      >
+                        <div style={{ width: 28, textAlign: 'center' }} onClick={(e) => { e.stopPropagation(); toggleLayerAttr(layer.name, 'visible'); }}>
+                          <i className={`fa-regular ${layer.visible ? 'fa-eye' : 'fa-eye-slash'}`} style={{ color: layer.visible ? '#7a9eff' : '#3a3a5a', fontSize: 12 }}></i>
+                        </div>
+                        <div style={{ width: 28, textAlign: 'center' }} onClick={(e) => { e.stopPropagation(); toggleLayerAttr(layer.name, 'locked'); }}>
+                          <i className={`fa-solid ${layer.locked ? 'fa-lock' : 'fa-lock-open'}`} style={{ color: layer.locked ? '#e8a040' : '#3a3a5a', fontSize: 11 }}></i>
+                        </div>
+                        <div style={{ width: 74, display: 'flex', justifyContent: 'center' }} onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="number"
+                            min="0"
+                            max="5"
+                            step="0.01"
+                            value={layer.lw}
+                            onChange={(e) => updateLayerLineweight(layer.name, e.target.value)}
+                            style={{
+                              width: 58,
+                              padding: '2px 4px',
+                              fontSize: 10,
+                              color: '#c0d0e0',
+                              background: '#161a2a',
+                              border: '1px solid #2a3550',
+                              borderRadius: 4,
+                              outline: 'none',
+                              fontFamily: 'monospace',
+                            }}
+                            title="Толщина линии слоя"
+                          />
+                        </div>
+                        <div style={{ flex: 1, marginLeft: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{layer.name}</div>
+                        <div style={{ width: 24, textAlign: 'center', fontSize: 10, color: '#4a5a7a', fontWeight: 700 }}>{count}</div>
                       </div>
-                      <div style={{ width: 32, textAlign: 'center' }} onClick={(e) => { e.stopPropagation(); toggleLayerAttr(layer.name, 'locked'); }}>
-                        <i className={`fa-solid ${layer.locked ? 'fa-lock' : 'fa-lock-open'}`} style={{ color: layer.locked ? '#e8a040' : '#3a3a5a', fontSize: 12 }}></i>
-                      </div>
-                      <div style={{ width: 44, fontSize: 11, color: '#5568A0', fontFamily: 'monospace' }}>{layer.lw.toFixed(2)}</div>
-                      <div style={{ flex: 1, marginLeft: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{layer.name}</div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </>
             ) : (
               <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
                 <div style={{ textAlign: 'center', color: '#3a4a6a' }}>
-                  <i className="fa-solid fa-layer-group" style={{ fontSize: 28, marginBottom: 8, display: 'block', opacity: 0.5 }}></i>
-                  <div style={{ fontSize: 13, fontWeight: 500 }}>Нет объектов</div>
-                  <div style={{ fontSize: 11, marginTop: 4, color: '#2a3a5a' }}>Начните рисовать — слои появятся здесь</div>
+                  <i className="fa-solid fa-layer-group" style={{ fontSize: 28, marginBottom: 8, display: 'block', opacity: 0.4 }}></i>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>Слои не используются</div>
+                  <div style={{ fontSize: 11, marginTop: 4, color: '#2a3a5a', lineHeight: 1.5 }}>Нарисуйте объекты или попросите AI сгенерировать чертёж — слои появятся здесь автоматически</div>
                 </div>
               </div>
             )}
@@ -1769,6 +2154,112 @@ export default function App() {
       {/* Hidden Inputs */}
       <input type="file" accept="image/*" style={{display: 'none'}} ref={fileInputRef} onChange={handleImageUpload} />
       <input type="file" accept="application/pdf" style={{display: 'none'}} ref={pdfInputRef} onChange={handlePdfUpload} />
+
+      {contextMenu && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: 'fixed',
+            left: Math.min(contextMenu.x, window.innerWidth - 235),
+            top: Math.min(contextMenu.y, window.innerHeight - 260),
+            width: 225,
+            zIndex: 1000,
+          }}
+          className="context-menu"
+        >
+          {contextMenu.type === 'object' ? (
+            <>
+              <button className="context-menu-item" onClick={() => { copySelectionToClipboard(false); setContextMenu(null); }}>
+                <i className="fa-regular fa-copy"></i><span>Копировать (Ctrl+C)</span>
+              </button>
+              <button className="context-menu-item" onClick={() => { setTool('rotate', 'ROTATE'); setContextMenu(null); }}>
+                <i className="fa-solid fa-rotate"></i><span>Поворот</span>
+              </button>
+              <button className="context-menu-item" onClick={() => { setTool('scale', 'SCALE'); setContextMenu(null); }}>
+                <i className="fa-solid fa-maximize"></i><span>Масштаб</span>
+              </button>
+              <button className="context-menu-item" onClick={() => { setTool('trim', 'TRIM'); setContextMenu(null); }}>
+                <i className="fa-solid fa-scissors"></i><span>Обрезать</span>
+              </button>
+              <button className="context-menu-item" onClick={() => { showSelectionDimensions(); setContextMenu(null); }}>
+                <i className="fa-solid fa-ruler-combined"></i><span>Размер (X/Y/Z)</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="context-menu-item" onClick={() => { setIsBlockModalOpen(true); setContextMenu(null); }}>
+                <i className="fa-solid fa-shapes"></i><span>Вставить блок...</span>
+              </button>
+              <div className="context-menu-separator"></div>
+              <button className="context-menu-item" onClick={() => { executeAction('image', 'IMAGE'); setContextMenu(null); }}>
+                <i className="fa-regular fa-image"></i><span>Вставка изображения</span>
+              </button>
+              <button className="context-menu-item" onClick={() => { executeAction('pdfattach', 'PDFATTACH'); setContextMenu(null); }}>
+                <i className="fa-regular fa-file-pdf"></i><span>Вставка PDF</span>
+              </button>
+              <button className="context-menu-item" onClick={() => { executeAction('table', 'TABLE'); setContextMenu(null); }}>
+                <i className="fa-solid fa-table"></i><span>Создание таблиц</span>
+              </button>
+              <button className="context-menu-item" onClick={() => { executeAction('leader', 'MLEADER'); setContextMenu(null); }}>
+                <i className="fa-solid fa-arrow-right"></i><span>Выноски</span>
+              </button>
+              <button className="context-menu-item" onClick={() => { setTool('text', 'MTEXT'); setContextMenu(null); }}>
+                <i className="fa-solid fa-font"></i><span>Текст</span>
+              </button>
+              <button className="context-menu-item" onClick={() => { pasteClipboard(lastMouseCadRef.current); setContextMenu(null); }}>
+                <i className="fa-solid fa-paste"></i><span>Вставить (Ctrl+V)</span>
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Layer Assignment Modal */}
+      {isLayerModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsLayerModalOpen(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 380 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ fontSize: 16, margin: 0, color: '#e0e8f0', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <i className="fa-solid fa-layer-group" style={{ color: '#4a9eff' }}></i>
+                Назначить слой
+              </h3>
+              <i className="fa-solid fa-xmark" style={{ cursor: 'pointer', color: '#8898b0', fontSize: 16 }} onClick={() => setIsLayerModalOpen(false)}></i>
+            </div>
+            <div style={{ fontSize: 13, color: '#8898b0', marginBottom: 16 }}>
+              Выбрано объектов: <span style={{ color: '#4a9eff', fontWeight: 700 }}>{appState.selectedElements.length}</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }} className="no-scroll">
+              {appState.layers.map(layer => (
+                <div
+                  key={layer.name}
+                  onClick={() => assignLayerToSelected(layer.name)}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '10px 14px', background: '#1a2030', borderRadius: 8,
+                    border: '1px solid #2a3a5a', cursor: 'pointer', transition: 'all 0.15s',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = '#22304a'; e.currentTarget.style.borderColor = '#4a9eff'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = '#1a2030'; e.currentTarget.style.borderColor = '#2a3a5a'; }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <i className="fa-solid fa-layer-group" style={{ color: '#4a9eff', fontSize: 13 }}></i>
+                    <span style={{ color: '#e0e8f0', fontWeight: 500, fontSize: 14 }}>{layer.name}</span>
+                    <span style={{ color: '#4a5a7a', fontSize: 11, fontFamily: 'monospace' }}>lw:{layer.lw.toFixed(2)}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {usedLayerNames.has(layer.name) && (
+                      <span style={{ fontSize: 10, color: '#4ade80', background: 'rgba(74,222,128,0.12)', borderRadius: 4, padding: '1px 6px' }}>
+                        {appState.elements.filter(el => el.layer === layer.name).length} объ.
+                      </span>
+                    )}
+                    <i className="fa-solid fa-chevron-right" style={{ color: '#4a5a7a', fontSize: 11 }}></i>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Block Modal */}
       {isBlockModalOpen && (
