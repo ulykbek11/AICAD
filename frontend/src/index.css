@@ -136,6 +136,29 @@
   .resize-v.active {
     background: #4a9eff;
   }
+
+  /* Modals */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(2px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+
+  .modal-content {
+    background: #10101e;
+    border: 1px solid #2e3e54;
+    border-radius: 8px;
+    width: 400px;
+    max-width: 90vw;
+    padding: 20px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    font-family: 'Inter', sans-serif;
+  }
 }
 
 @media print {

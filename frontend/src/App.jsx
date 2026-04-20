@@ -12,6 +12,7 @@ const defaultLayers = [
   { name: 'Мебель',    visible: true, locked: false, lw: 0.18 },
   { name: 'Текст',     visible: true, locked: false, lw: 0.13 },
   { name: 'Штриховка', visible: false,locked: false, lw: 0.09 },
+  { name: 'Подложка',  visible: true, locked: false, lw: 0.0 },
 ];
 
 export default function App() {
@@ -33,12 +34,20 @@ export default function App() {
     gridEnabled: true,
     orthoEnabled: false,
     osnapEnabled: true,
+    blocks: [],
   });
 
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [activeTab, setActiveTab] = useState('ГЛАВНАЯ');
   const [chatInput, setChatInput] = useState('');
   const [cmdInput, setCmdInput] = useState('');
+
+  // Insert Feature States
+  const [isBlockModalOpen, setIsBlockModalOpen] = useState(false);
+  const [newBlockName, setNewBlockName] = useState('');
+  const [pendingInsert, setPendingInsert] = useState(null); // { type: 'image'|'pdf'|'block', source: any, width, height, blockId }
+  const fileInputRef = useRef(null);
+  const pdfInputRef = useRef(null);
 
   // Undo/Redo stack
   const [history, setHistory] = useState([[]]);
@@ -97,14 +106,121 @@ export default function App() {
         logCmd("Печать → выберите 'Сохранить как PDF' в диалоге.");
         window.print();
         break;
-      case 'block': logCmd("Вставка блока — в разработке."); break;
-      case 'image': logCmd("Вставка изображения — в разработке."); break;
-      case 'pdfattach': logCmd("PDF подложка — в разработке."); break;
+      case 'block': 
+        setIsBlockModalOpen(true); 
+        break;
+      case 'image': 
+        if(fileInputRef.current) fileInputRef.current.click(); 
+        break;
+      case 'pdfattach': 
+        if(pdfInputRef.current) pdfInputRef.current.click(); 
+        break;
       case 'leader': logCmd("Выноска — в разработке."); break;
       case 'table': logCmd("Таблица — в разработке."); break;
       default: break;
     }
   };
+
+  // Image Upload logic
+  const handleImageUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        setPendingInsert({ type: 'image', source: ev.target.result, width: img.width, height: img.height });
+        setTool('insert_pending', 'INSERT_IMAGE');
+        logCmd("Кликните на чертеж для вставки изображения");
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  // PDF Upload logic
+  const handlePdfUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const fileReader = new FileReader();
+    fileReader.onload = async function() {
+      try {
+        const typedarray = new Uint8Array(this.result);
+        const pdf = await window.pdfjsLib.getDocument(typedarray).promise;
+        const page = await pdf.getPage(1);
+        const viewport = page.getViewport({ scale: 2.0 });
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+        await page.render({ canvasContext: context, viewport: viewport }).promise;
+        const dataUrl = canvas.toDataURL('image/png');
+        setPendingInsert({ type: 'pdf', source: dataUrl, width: viewport.width, height: viewport.height });
+        setTool('insert_pending', 'PDFATTACH');
+        logCmd("Кликните на чертеж для вставки PDF подложки");
+      } catch (err) {
+        logCmd("Ошибка загрузки PDF: " + err.message);
+      }
+    };
+    fileReader.readAsArrayBuffer(file);
+    e.target.value = '';
+  };
+
+  // Block Create logic
+  const createBlock = () => {
+    if (!newBlockName.trim()) { alert("Введите имя блока"); return; }
+    if (appState.selectedElements.length === 0) { alert("Выберите элементы для блока"); return; }
+    
+    if (appState.blocks.some(b => b.name === newBlockName)) {
+      alert("Блок с таким именем уже существует!");
+      return;
+    }
+
+    const selSet = new Set(appState.selectedElements);
+    const blockElements = appState.elements.filter(el => selSet.has(el.id)).map(el => JSON.parse(JSON.stringify(el)));
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    blockElements.forEach(el => {
+      if (el.points) el.points.forEach(p => {
+        if(p.x < minX) minX = p.x; if(p.x > maxX) maxX = p.x;
+        if(p.y < minY) minY = p.y; if(p.y > maxY) maxY = p.y;
+      });
+      if (el.type === 'circle' && el.radius) {
+        const c = el.points[0];
+        if(c.x-el.radius < minX) minX = c.x-el.radius;
+        if(c.x+el.radius > maxX) maxX = c.x+el.radius;
+        if(c.y-el.radius < minY) minY = c.y-el.radius;
+        if(c.y+el.radius > maxY) maxY = c.y+el.radius;
+      }
+    });
+    
+    const centerX = minX !== Infinity ? (minX + maxX)/2 : 0;
+    const centerY = minY !== Infinity ? (minY + maxY)/2 : 0;
+    const basePoint = { x: centerX, y: centerY };
+
+    blockElements.forEach(el => {
+      if(el.points) el.points.forEach(p => {
+        p.x -= basePoint.x;
+        p.y -= basePoint.y;
+      });
+    });
+
+    setAppState(p => ({
+      ...p,
+      blocks: [...p.blocks, { id: uuid(), name: newBlockName, elements: blockElements, basePoint: {x:0, y:0} }]
+    }));
+    logCmd(`Блок "${newBlockName}" создан`);
+    setNewBlockName('');
+  };
+
+  const startInsertBlock = (block) => {
+    setPendingInsert({ type: 'block', blockId: block.id, blockData: block });
+    setTool('insert_pending', `INSERT BLOCK ${block.name}`);
+    setIsBlockModalOpen(false);
+    logCmd("Кликните на чертеж для вставки блока");
+  };
+
 
   const setTool = (tool, logName) => {
     if (tool === 'erase' && stateRef.current.selectedElements.length > 0) {
@@ -317,6 +433,42 @@ export default function App() {
         setAppState(p => ({ ...p, activeTool: 'box_select', isDrawing: true, drawingPoints: [pt, pt] }));
         draftRef.current.points = [pt];
       }
+      return;
+    }
+
+    if (appState.activeTool === 'insert_pending' && pendingInsert) {
+      if (pendingInsert.type === 'block') {
+        const { blockData } = pendingInsert;
+        const newEls = blockData.elements.map(el => {
+          const newEl = JSON.parse(JSON.stringify(el));
+          newEl.id = uuid();
+          newEl.groupId = blockData.id;
+          if(newEl.points) {
+            newEl.points.forEach(p => { p.x += pt.x; p.y += pt.y; });
+          }
+          return newEl;
+        });
+        const newElements = [...appState.elements, ...newEls];
+        setAppState(p => ({ ...p, elements: newElements, activeTool: 'select' }));
+        pushHistory(newElements);
+        logCmd(`Вставлен блок "${blockData.name}"`);
+      } else if (pendingInsert.type === 'image' || pendingInsert.type === 'pdf') {
+        const scale = 200 / pendingInsert.width; // Normalize size somewhat
+        const newEl = {
+          id: uuid(),
+          type: pendingInsert.type,
+          layer: pendingInsert.type === 'pdf' ? 'Подложка' : appState.activeLayer,
+          points: [pt],
+          width: pendingInsert.width * scale,
+          height: pendingInsert.height * scale,
+          source: pendingInsert.source
+        };
+        const newElements = [...appState.elements, newEl];
+        setAppState(p => ({ ...p, elements: newElements, activeTool: 'select' }));
+        pushHistory(newElements);
+        logCmd(`Вставлено ${pendingInsert.type === 'pdf' ? 'PDF-подложка' : 'Изображение'}`);
+      }
+      setPendingInsert(null);
       return;
     }
 
@@ -721,6 +873,11 @@ export default function App() {
         shape = <path d={`M ${p1.x} ${p1.y} Q ${p2.x} ${p2.y} ${p3.x} ${p3.y}`} strokeWidth={strokeWidth} fill="none" />;
       } else if (el.type === 'text') {
         shape = <text x={el.points[0].x} y={el.points[0].y} fill={isSelected ? '#4a9eff' : '#ffffff'} fontSize={14/appState.zoom} fontFamily="Inter, sans-serif">{el.text}</text>;
+      } else if (el.type === 'image' || el.type === 'pdf') {
+        const isPdf = el.type === 'pdf';
+        shape = (
+          <image href={el.source} x={el.points[0].x} y={el.points[0].y} width={el.width} height={el.height} opacity={isPdf ? 0.4 : 1.0} />
+        );
       } else if (el.type === 'dim') {
         const [p1, p2] = el.points;
         const distance = dist(p1, p2).toFixed(2);
@@ -736,7 +893,7 @@ export default function App() {
 
       if (!shape) return null;
 
-      const isTextOrDim = el.type === 'text' || el.type === 'dim';
+      const isSpecial = ['text', 'dim', 'image', 'pdf'].includes(el.type);
 
       return (
         <g
@@ -745,8 +902,8 @@ export default function App() {
           style={{ pointerEvents: layer.locked ? 'none' : 'auto' }}
           onClick={(e) => handleObjectClick(e, el)}
         >
-          {isTextOrDim ? null : React.cloneElement(shape, { stroke: "transparent", strokeWidth: 10/appState.zoom, pointerEvents: "stroke", fill: "none" })}
-          {isTextOrDim ? shape : React.cloneElement(shape, { stroke: isSelected ? '#4a9eff' : '#ffffff', strokeWidth: strokeWidth, fill: "none" })}
+          {isSpecial ? null : React.cloneElement(shape, { stroke: "transparent", strokeWidth: 10/appState.zoom, pointerEvents: "stroke", fill: "none" })}
+          {isSpecial ? shape : React.cloneElement(shape, { stroke: isSelected ? '#4a9eff' : '#ffffff', strokeWidth: strokeWidth, fill: "none" })}
           {isSelected && !layer.locked && (
             <g>
               {el.points.map((p, idx) => (
@@ -1268,6 +1425,66 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      {/* Hidden Inputs */}
+      <input type="file" accept="image/*" style={{display: 'none'}} ref={fileInputRef} onChange={handleImageUpload} />
+      <input type="file" accept="application/pdf" style={{display: 'none'}} ref={pdfInputRef} onChange={handlePdfUpload} />
+
+      {/* Block Modal */}
+      {isBlockModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsBlockModalOpen(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16}}>
+              <h3 style={{fontSize: 16, margin: 0, color: '#e0e8f0'}}>Менеджер блоков</h3>
+              <i className="fa-solid fa-xmark" style={{cursor: 'pointer', color: '#8898b0'}} onClick={() => setIsBlockModalOpen(false)}></i>
+            </div>
+            
+            <div style={{marginBottom: 20}}>
+              <div style={{fontSize: 12, color: '#8898b0', marginBottom: 8}}>Создать новый блок из выделенных объектов:</div>
+              <div style={{display: 'flex', gap: 8}}>
+                <input 
+                  type="text" 
+                  placeholder="Имя блока..." 
+                  value={newBlockName}
+                  onChange={e => setNewBlockName(e.target.value)}
+                  style={{flex: 1, padding: '8px 12px', background: '#12121f', border: '1px solid #2e3e54', borderRadius: 4, color: '#e0e8f0', outline: 'none'}}
+                />
+                <button 
+                  onClick={createBlock}
+                  style={{padding: '8px 16px', background: '#4a9eff', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600}}
+                >
+                  Создать
+                </button>
+              </div>
+            </div>
+
+            <div style={{borderTop: '1px solid #2e3e54', paddingTop: 16}}>
+              <div style={{fontSize: 12, color: '#8898b0', marginBottom: 12}}>Библиотека блоков:</div>
+              <div style={{maxHeight: 250, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8}} className="no-scroll">
+                {appState.blocks.length === 0 ? (
+                  <div style={{color: '#5568A0', fontSize: 13, textAlign: 'center', padding: '20px 0'}}>Нет сохраненных блоков</div>
+                ) : (
+                  appState.blocks.map(b => (
+                    <div key={b.id} style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: '#1a2030', borderRadius: 6, border: '1px solid #2a3a5a'}}>
+                      <div style={{display: 'flex', alignItems: 'center', gap: 10}}>
+                        <i className="fa-solid fa-shapes" style={{color: '#4a9eff'}}></i>
+                        <span style={{color: '#e0e8f0', fontSize: 13, fontWeight: 500}}>{b.name}</span>
+                        <span style={{color: '#5568A0', fontSize: 11}}>({b.elements.length} эл.)</span>
+                      </div>
+                      <button 
+                        onClick={() => startInsertBlock(b)}
+                        style={{padding: '4px 12px', background: 'transparent', color: '#4a9eff', border: '1px solid #4a9eff', borderRadius: 4, cursor: 'pointer', fontSize: 12}}
+                      >
+                        Вставить
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
