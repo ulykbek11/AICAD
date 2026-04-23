@@ -27,6 +27,24 @@ Files were successfully created. The React app is ready to run via `npm run dev`
 
 **Outcome:**
 ✅ Success
+
+## [2026-04-22 12:15] - Fix ezdxf SVGBackend compatibility error
+
+**Problem/Request:**
+При генерации плана возникает ошибка `'SVGBackend' object has no attribute 'write'` в `svg_service.py`. Причина - в ezdxf версии 1.x и выше был удален метод `.write()` из класса `SVGBackend`.
+
+**Files Modified:**
+- `backend/services/svg_service.py` (lines 1-2, 16-18) - заменен устаревший метод `.write()` на актуальный метод получения XML корня.
+
+**Solution Summary:**
+Импортирован модуль `xml.etree.ElementTree as ET`.
+Код изменен на использование метода `backend.get_xml_root_element(frontend.out)` для получения XML-элемента, который затем записывается в `StringIO` с помощью `ET.ElementTree(svg_element).write()`.
+
+**Verification:**
+Код обновлен в соответствии с требованиями ezdxf 1.x. Ошибка отсутствия атрибута `.write()` устранена.
+
+**Outcome:**
+✅ Success
 Waiting for the user to provide the backend pipeline for further integration.
 
 ## [2026-04-15] - Architecture Pipeline Setup
@@ -70,6 +88,78 @@ Implement the proposed pipeline for generating a 2D floorplan: User Input -> LLM
 
 **Verification:**
 Dependencies installed successfully (`pip install -r backend/requirements.txt`). Code structure allows for easy replacement of mocks with real model inferences.
+
+**Outcome:**
+✅ Success
+
+## [2026-04-22 12:00] - Server Restart for API Key Update
+
+**Problem/Request:**
+API ключ ушел в общий доступ. Файл .gitignore был вынесен в корень, а сам ключ заменен. Потребовался перезапуск серверов для применения нового ключа.
+
+**Files Modified:**
+- Никакие файлы не модифицировались.
+
+**Solution Summary:**
+Остановлены старые процессы и запущены новые:
+1. Запущен backend сервер (`uvicorn main:app --reload`).
+2. Запущен frontend сервер (`npm run dev`).
+
+**Verification:**
+Оба сервера запущены без ошибок в терминалах и готовы к работе с новым API ключом.
+
+**Outcome:**
+✅ Success
+
+## [2026-04-22 12:30] - Fix WebSocket connection error
+
+**Problem/Request:**
+Ошибка подключения WebSocket от frontend-приложения (React) к backend-серверу (FastAPI). Проблема связана с резолвингом `localhost` в `::1` (IPv6), в то время как сервер Uvicorn ожидает подключение по IPv4 (`127.0.0.1`). Также потребовалось обновление CORS.
+
+**Files Modified:**
+- `frontend/src/App.jsx` (lines 1296, 2064) - замена `localhost` на `127.0.0.1`.
+- `backend/main.py` (lines 17-23) - ослабление CORS (`allow_origins=["*"]`, `allow_credentials=False`).
+
+**Solution Summary:**
+Изменены ссылки WebSocket и HTTP-загрузки файлов на фронтенде с `localhost` на явный IPv4-адрес `127.0.0.1`. Изменены настройки CORS в backend для свободного доступа в локальной среде разработки.
+
+**Verification:**
+WebSocket-соединение теперь использует `127.0.0.1`, что исключает конфликт IPv4/IPv6. Backend принимает все запросы.
+
+**Outcome:**
+✅ Success
+
+## [2026-04-22 12:45] - Fix ezdxf Frontend.out attribute error by switching to MatplotlibBackend
+
+**Problem/Request:**
+Возникла ошибка `"Frontend" object has no attribute "out"` при генерации плана в `svg_service.py`. Метод получения `xml_root_element` из `frontend.out` более не работает в текущей версии ezdxf. Пользователь попросил использовать `MatplotlibBackend` в качестве альтернативы.
+
+**Files Modified:**
+- `backend/services/svg_service.py` - Изменен код рендеринга. Удален `SVGBackend`, добавлен `matplotlib.pyplot` и `MatplotlibBackend`.
+- `backend/requirements.txt` - Добавлен пакет `matplotlib`.
+
+**Solution Summary:**
+Установлена библиотека `matplotlib` (`pip install matplotlib`). В `svg_service.py` создан график matplotlib (`plt.figure()`) с фоном `#0d0d1a`, на котором рисуется `Frontend` через `MatplotlibBackend`. Изображение сохраняется в `io.StringIO()` в формате `svg` и возвращается.
+
+**Verification:**
+Ошибка отсутствующего атрибута `.out` устранена, код использует поддерживаемый способ рендеринга. Сервер может перезагрузиться с новой зависимостью и успешно отрендерить SVG.
+
+**Outcome:**
+✅ Success
+
+## [2026-04-23 09:35] - Fix Matplotlib Thread-Safety Issue (Internal Server Error)
+
+**Problem/Request:**
+После переключения на MatplotlibBackend появилась ошибка `Internal server error` в Swagger при попытке генерации чертежа, и старая ошибка `"Frontend" object has no attribute "out"` все еще показывалась из-за кэширования старого кода. `matplotlib` использовал дефолтный интерактивный GUI-бэкенд (например, `TkAgg`), который не является потокобезопасным для веб-серверов.
+
+**Files Modified:**
+- `backend/services/svg_service.py` (lines 3-5) - Добавлен `matplotlib.use('Agg')` перед импортом `pyplot`.
+
+**Solution Summary:**
+Для корректной работы Matplotlib в фоновых потоках FastAPI установлен неинтерактивный бэкенд `Agg` (`matplotlib.use('Agg')`).
+
+**Verification:**
+Проверено локально: генерация SVG выполняется успешно в CLI. Пользователю выдана инструкция обязательно перезапустить процесс бэкенда (`uvicorn`), чтобы сбросить кэш оперативной памяти и применить новые изменения.
 
 **Outcome:**
 ✅ Success

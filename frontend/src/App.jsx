@@ -1295,7 +1295,7 @@ export default function App() {
     updateProgress(1, 'Инициализация генерации...');
 
     if (ws.current) ws.current.close();
-    ws.current = new WebSocket(`ws://localhost:8000/api/ws/${Date.now()}`);
+    ws.current = new WebSocket(`ws://127.0.0.1:8000/api/ws/${Date.now()}`);
 
     ws.current.onopen = () => {
       ws.current.send(JSON.stringify({ prompt: userMsg }));
@@ -1304,12 +1304,14 @@ export default function App() {
     ws.current.onmessage = (event) => {
       const data = JSON.parse(event.data);
       if (data.stage === 'done') {
-        clearCanvas();
-        insertSVGToCanvas(data.svg);
-        setCurrentDXFUrl(data.download_url || '');
+        if (data.svg) {
+          clearCanvas();
+          insertSVGToCanvas(data.svg);
+          setCurrentDXFUrl(data.download_url || '');
+          logCmd(`AI: готово, DXF ${data.download_url || ''}`);
+        }
         setChatProgress({ value: 100, message: 'Готово' });
         addMessage('assistant', data.message || 'Чертеж готов.');
-        logCmd(`AI: готово, DXF ${data.download_url || ''}`);
       } else if (data.stage === 'error') {
         addMessage('assistant', `Ошибка: ${data.message}`);
         logCmd(`AI_ERROR: ${data.message}`);
@@ -2061,7 +2063,7 @@ export default function App() {
               {currentDXFUrl && (
                 <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'flex-end' }}>
                   <a
-                    href={`http://localhost:8000${currentDXFUrl}`}
+                    href={`http://127.0.0.1:8000${currentDXFUrl}`}
                     target="_blank"
                     rel="noreferrer"
                     style={{ color: '#4a9eff', fontSize: 12, textDecoration: 'none' }}

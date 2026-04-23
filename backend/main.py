@@ -2,18 +2,22 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-from routers import generate, export
-
+# Загружаем .env до импортов роутеров/сервисов, чтобы ключи были доступны при инициализации.
+BACKEND_DIR = Path(__file__).resolve().parent
+load_dotenv(BACKEND_DIR / ".env")
 load_dotenv()
+
+from routers import generate, export
 
 app = FastAPI(title="AICAD Backend")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[os.getenv("CORS_ORIGIN", "http://localhost:5173")],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

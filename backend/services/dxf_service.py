@@ -4,7 +4,7 @@ import uuid
 
 import ezdxf
 
-from services.symbol_service import add_furniture
+from services.symbol_service import draw_symbols
 
 SCALE = 100.0
 WALL_THICKNESS = 15.0
@@ -58,7 +58,17 @@ def draw_dimension(msp, x1, y1, x2, y2, offset=50):
     text.set_placement(((x1 + x2) / 2, y1 + offset + 5))
 
 
-def generate_dxf(rooms_with_coords: list) -> tuple[str, str]:
+ROOM_LABELS = {
+    "living_room": "Гостиная",
+    "bedroom": "Спальня",
+    "kitchen": "Кухня",
+    "bathroom": "Ванная",
+    "toilet": "Туалет",
+    "hallway": "Коридор",
+}
+
+
+def generate_dxf(rooms_with_symbols: list[dict]) -> tuple[str, str]:
     doc = ezdxf.new(dxfversion="R2010")
     msp = doc.modelspace()
     setup_layers(doc)
@@ -66,11 +76,11 @@ def generate_dxf(rooms_with_coords: list) -> tuple[str, str]:
     all_x = []
     all_y = []
 
-    for room in rooms_with_coords:
-        x = room.x * SCALE
-        y = room.y * SCALE
-        w = room.width * SCALE
-        h = room.height * SCALE
+    for room in rooms_with_symbols:
+        x = room["x0"] * SCALE
+        y = room["y0"] * SCALE
+        w = (room["x1"] - room["x0"]) * SCALE
+        h = (room["y1"] - room["y0"]) * SCALE
         all_x.extend([x, x + w])
         all_y.extend([y, y + h])
 
@@ -79,14 +89,15 @@ def generate_dxf(rooms_with_coords: list) -> tuple[str, str]:
         draw_wall(msp, x + w, y + h, x, y + h)
         draw_wall(msp, x, y + h, x, y)
 
-        if room.type != "hallway":
+        if room["type"] != "hallway":
             draw_door(msp, x + min(w * 0.2, 30), y, 90)
 
-        if room.type in ("living_room", "bedroom", "kitchen"):
+        if room["type"] in ("living_room", "bedroom", "kitchen"):
             draw_window(msp, x + w * 0.3, y + h - WALL_THICKNESS, w * 0.4)
 
-        text = msp.add_text(room.label, dxfattribs={"layer": "Текст", "height": 18})
-        text.set_placement((x + w / 2 - len(room.label) * 5, y + h / 2))
+        label = ROOM_LABELS.get(room["type"], room["type"])
+        text = msp.add_text(label, dxfattribs={"layer": "Текст", "height": 18})
+        text.set_placement((x + w / 2 - len(label) * 5, y + h / 2))
 
     if all_x and all_y:
         min_x, max_x = min(all_x), max(all_x)
@@ -94,7 +105,7 @@ def generate_dxf(rooms_with_coords: list) -> tuple[str, str]:
         draw_dimension(msp, min_x, max_y, max_x, max_y, offset=60)
         draw_dimension(msp, max_x, min_y, max_x, max_y, offset=60)
 
-    add_furniture(msp, rooms_with_coords, scale=SCALE)
+    draw_symbols(msp, rooms_with_symbols, scale=SCALE)
 
     job_id = str(uuid.uuid4())[:8]
     filepath = f"static/downloads/{job_id}.dxf"
