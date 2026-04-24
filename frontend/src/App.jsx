@@ -41,8 +41,9 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('ГЛАВНАЯ');
   const [chatInput, setChatInput] = useState('');
   const [chatProgress, setChatProgress] = useState({ value: 0, message: '' });
+  const [loading, setLoading] = useState(false);
   const [generatedSVGUrl, setGeneratedSVGUrl] = useState(null);
-  const [currentDXFUrl, setCurrentDXFUrl] = useState('');
+  const [downloadUrl, setDownloadUrl] = useState('');
   const [cmdInput, setCmdInput] = useState('');
   const [contextMenu, setContextMenu] = useState(null); // { type: 'object'|'canvas', x, y, targetId? }
   const [selectionClipboard, setSelectionClipboard] = useState([]);
@@ -93,7 +94,6 @@ export default function App() {
   };
 
   const svgRef = useRef(null);
-  const ws = useRef(null);
 
   const draftRef = useRef({
     points: [],
@@ -105,7 +105,6 @@ export default function App() {
   const stateRef = useRef(appState);
   useEffect(() => { stateRef.current = appState; }, [appState]);
   useEffect(() => () => {
-    if (ws.current) ws.current.close();
     if (generatedSVGUrl) URL.revokeObjectURL(generatedSVGUrl);
   }, [generatedSVGUrl]);
 
@@ -1245,6 +1244,19 @@ export default function App() {
     setAppState(p => ({ ...p, chatMessages: [...p.chatMessages, { role, text }] }));
   };
 
+  const updateLastAiMessage = (text) => {
+    setAppState(prev => {
+      const messages = [...prev.chatMessages];
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        if (messages[i].role === 'assistant') {
+          messages[i] = { ...messages[i], text };
+          return { ...prev, chatMessages: messages };
+        }
+      }
+      return { ...prev, chatMessages: [...messages, { role: 'assistant', text }] };
+    });
+  };
+
   const updateProgress = (progress, message) => {
     setChatProgress({ value: progress ?? 0, message: message ?? '' });
     if (message) logCmd(`AI: ${message}`);
@@ -1284,51 +1296,55 @@ export default function App() {
     setTimeout(() => zoomExtents(), 100);
   };
 
-  // AI Chat — backend WebSocket generation
+  const sendMessage = async (prompt) => {
+    try {
+      setLoading(true);
+      setDownloadUrl('');
+      addMessage('user', prompt);
+      addMessage('assistant', 'Генерирую чертёж...');
+      updateProgress(30, 'Генерация...');
+      logCmd("AI_GENERATE");
+
+      const response = await fetch("http://localhost:8011/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ prompt })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || "Ошибка сервера");
+      }
+
+      const data = await response.json();
+
+      if (data.svg) {
+        clearCanvas();
+        insertSVGToCanvas(data.svg);
+      }
+
+      updateLastAiMessage(
+        `Готово! ${data.rooms_count} комнат, ${data.total_area}м². Чертёж отображён на канвасе.`
+      );
+      setDownloadUrl(`http://localhost:8011${data.download_url || ''}`);
+      logCmd(`AI: готово, DXF ${data.download_url || ''}`);
+      setChatProgress({ value: 100, message: 'Готово' });
+    } catch (error) {
+      updateLastAiMessage(`Ошибка: ${error.message}`);
+      logCmd(`AI_ERROR: ${error.message}`);
+      setChatProgress({ value: 0, message: '' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleChatEnter = () => {
-    if (!chatInput.trim()) return;
+    if (!chatInput.trim() || loading) return;
     const userMsg = chatInput.trim();
     setChatInput('');
-    addMessage('user', userMsg);
-    logCmd("AI_GENERATE");
-    addMessage('assistant', 'Подключаюсь к серверу...');
-    updateProgress(1, 'Инициализация генерации...');
-
-    if (ws.current) ws.current.close();
-    ws.current = new WebSocket(`ws://127.0.0.1:8000/api/ws/${Date.now()}`);
-
-    ws.current.onopen = () => {
-      ws.current.send(JSON.stringify({ prompt: userMsg }));
-    };
-
-    ws.current.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.stage === 'done') {
-        if (data.svg) {
-          clearCanvas();
-          insertSVGToCanvas(data.svg);
-          setCurrentDXFUrl(data.download_url || '');
-          logCmd(`AI: готово, DXF ${data.download_url || ''}`);
-        }
-        setChatProgress({ value: 100, message: 'Готово' });
-        addMessage('assistant', data.message || 'Чертеж готов.');
-      } else if (data.stage === 'error') {
-        addMessage('assistant', `Ошибка: ${data.message}`);
-        logCmd(`AI_ERROR: ${data.message}`);
-        setChatProgress({ value: 0, message: '' });
-      } else {
-        updateProgress(data.progress, data.message);
-      }
-    };
-
-    ws.current.onerror = () => {
-      addMessage('assistant', 'Ошибка WebSocket подключения к backend.');
-      setChatProgress({ value: 0, message: '' });
-    };
-
-    ws.current.onclose = () => {
-      ws.current = null;
-    };
+    sendMessage(userMsg);
   };
 
   const toggleLayerAttr = (layerName, attr) => {
@@ -2060,13 +2076,21 @@ export default function App() {
                   </div>
                 </div>
               )}
-              {currentDXFUrl && (
-                <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'flex-end' }}>
+              {downloadUrl && (
+                <div style={{ marginBottom: 8 }}>
                   <a
-                    href={`http://127.0.0.1:8000${currentDXFUrl}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{ color: '#4a9eff', fontSize: 12, textDecoration: 'none' }}
+                    href={downloadUrl}
+                    download="drawing.dxf"
+                    style={{
+                      display: "block",
+                      marginTop: "8px",
+                      padding: "6px 12px",
+                      background: "#1a3a8a",
+                      color: "white",
+                      borderRadius: "4px",
+                      textDecoration: "none",
+                      fontSize: "12px"
+                    }}
                   >
                     Скачать DXF
                   </a>
@@ -2081,12 +2105,14 @@ export default function App() {
                   rows="2"
                   placeholder="Опишите чертёж..."
                   value={chatInput}
+                  disabled={loading}
                   onChange={e => setChatInput(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleChatEnter(); } }}
                 />
                 <button
                   style={{ padding: '0 14px', background: 'transparent', border: 'none', color: '#4a9eff', cursor: 'pointer', fontSize: 15 }}
                   onClick={handleChatEnter}
+                  disabled={loading}
                   onMouseEnter={e => e.currentTarget.style.color = '#fff'}
                   onMouseLeave={e => e.currentTarget.style.color = '#4a9eff'}
                 >

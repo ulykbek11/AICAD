@@ -1,14 +1,20 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-import os
-from pathlib import Path
 from dotenv import load_dotenv
+from pathlib import Path
+
+BACKEND_DIR = Path(__file__).resolve().parent
+load_dotenv(BACKEND_DIR / ".env", override=True)
+load_dotenv()
+
+import os
+print("GOOGLE_API_KEY loaded:", (os.getenv("GOOGLE_API_KEY") or "")[:8] + "...")
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 # Загружаем .env до импортов роутеров/сервисов, чтобы ключи были доступны при инициализации.
-BACKEND_DIR = Path(__file__).resolve().parent
-load_dotenv(BACKEND_DIR / ".env")
-load_dotenv()
+load_dotenv(override=False)
 
 from routers import generate, export
 
@@ -31,3 +37,14 @@ app.include_router(export.router, prefix="/api")
 @app.get("/")
 def health():
     return {"status": "ok", "service": "AICAD Backend"}
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": str(exc),
+            "type": type(exc).__name__,
+        },
+    )

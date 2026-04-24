@@ -1,24 +1,24 @@
 import json
+import logging
 import os
 import pickle
 import re
 from typing import Literal
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import google.generativeai as genai
 
+api_key = os.getenv("GOOGLE_API_KEY")
+if not api_key:
+    raise ValueError("GOOGLE_API_KEY не найден в .env файле")
 
-def _get_api_key() -> str:
-    # Поддерживаем оба названия переменной для совместимости.
-    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        raise RuntimeError(
-            "Не найден API ключ Gemini. Укажите GEMINI_API_KEY или GOOGLE_API_KEY в backend/.env"
-        )
-    return api_key
+genai.configure(api_key=api_key)
 
+logger = logging.getLogger(__name__)
 
 def _build_model(model_name: str = "gemini-2.5-flash"):
-    genai.configure(api_key=_get_api_key())
     return genai.GenerativeModel(model_name)
 
 SYSTEM_PROMPT = """
@@ -135,17 +135,37 @@ def answer_project_chat(prompt: str) -> str:
 
 
 def generate_room_graph(prompt: str) -> dict:
-    model = _build_model("gemini-2.5-flash")
-    response = model.generate_content(f"{SYSTEM_PROMPT}\n\nЗапрос пользователя: {prompt}")
-    text = (response.text or "").strip()
+    text = ""
+    try:
+        model = _build_model("gemini-2.5-flash")
+        response = model.generate_content(f"{SYSTEM_PROMPT}\n\nЗапрос пользователя: {prompt}")
 
-    text = re.sub(r"```json\s*", "", text)
-    text = re.sub(r"```\s*", "", text)
-    text = text.strip()
+        text = (response.text or "").strip()
+        logger.debug(f"Сырой ответ Gemini: {text}")
 
-    if not text:
-        raise ValueError("Gemini вернул пустой ответ")
-    return json.loads(text)
+        # Убираем markdown-обертки, если модель их добавила.
+        text = re.sub(r"```json\s*", "", text)
+        text = re.sub(r"```\s*", "", text)
+        text = text.strip()
+
+        if not text:
+            raise ValueError("Gemini вернул пустой ответ")
+
+        data = json.loads(text)
+
+        # Минимальная валидация структуры ответа.
+        if "rooms" not in data:
+            raise ValueError(f"Нет поля rooms в ответе: {data}")
+        if not data["rooms"]:
+            raise ValueError("Пустой список комнат")
+
+        return data
+    except json.JSONDecodeError as e:
+        logger.error(f"Gemini вернул не JSON: {text}")
+        raise ValueError(f"Ошибка парсинга JSON: {str(e)}") from e
+    except Exception as e:
+        logger.error(f"Ошибка LLM: {str(e)}")
+        raise
 
 
 def generate_room_graph_pkl(prompt: str) -> bytes:

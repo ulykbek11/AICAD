@@ -11,14 +11,27 @@ ROOM_LABELS = {
 }
 
 
+ROOM_PRIORITY = {
+    "hallway": 0,
+    "living_room": 1,
+    "kitchen": 2,
+    "bedroom": 3,
+    "bathroom": 4,
+    "toilet": 5,
+}
+
 def layout_rooms(rooms: list[dict]) -> list[RoomWithCoords]:
-    sorted_rooms = sorted(rooms, key=lambda r: -r["area_m2"])
+    sorted_rooms = sorted(rooms, key=lambda r: ROOM_PRIORITY.get(r["type"], 10))
 
     placed: list[RoomWithCoords] = []
     cursor_x = 0.0
     cursor_y = 0.0
     row_height = 0.0
-    max_row_width = math.sqrt(sum(r["area_m2"] for r in rooms)) * 1.5
+    
+    total_area = sum(r["area_m2"] for r in rooms)
+    max_row_width = math.sqrt(total_area) * 1.2 if total_area > 0 else 10.0
+    
+    rooms_in_row = 0
 
     for room in sorted_rooms:
         area = room["area_m2"]
@@ -27,10 +40,11 @@ def layout_rooms(rooms: list[dict]) -> list[RoomWithCoords]:
         width = max(min_w, math.sqrt(area * 1.3))
         height = area / width
 
-        if cursor_x + width > max_row_width and cursor_x > 0:
+        if rooms_in_row >= 3 or (cursor_x + width > max_row_width and cursor_x > 0):
             cursor_x = 0.0
             cursor_y += row_height + 0.15
             row_height = 0.0
+            rooms_in_row = 0
 
         placed.append(
             RoomWithCoords(
@@ -46,5 +60,6 @@ def layout_rooms(rooms: list[dict]) -> list[RoomWithCoords]:
 
         cursor_x += width + 0.15
         row_height = max(row_height, height)
+        rooms_in_row += 1
 
     return placed

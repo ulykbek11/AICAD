@@ -28,6 +28,28 @@ Files were successfully created. The React app is ready to run via `npm run dev`
 **Outcome:**
 ✅ Success
 
+## [2026-04-24 15:30] - Fix Room Layout, Doors, Furniture, and General Drawing Rules
+
+**Problem/Request:**
+- Rooms placed without considering priority/adjacency.
+- Wall thickness needed to be 20.0, and doors needed to be drawn connecting adjacent rooms.
+- Furniture (symbols) not proportional, drawn without offsets, and poorly positioned.
+- General drawing fixes: labels should be centered with size 20, dimensions should have offset 80 and formatted to 1 decimal place.
+
+**Files Modified:**
+- layout_service.py - Sorted rooms by priority and added row limits.
+- dxf_service.py - Fixed door positions using adjacent_to, updated wall thickness, centered text labels, fixed dimension lines.
+- symbol_service.py - Fixed furniture sizes, positions (added 20 unit margins), and assigned correct layers (Мебель, Сантехника).
+
+**Solution Summary:**
+Applied geometric adjustments across all services to fulfill layout priority rules, correct drawing of doors between rooms, adjust text/dimensions styling, and properly draw furniture per the exact user requirements.
+
+**Verification:**
+Changes applied successfully.
+
+**Outcome:**
+✅ Success
+
 ## [2026-04-22 12:15] - Fix ezdxf SVGBackend compatibility error
 
 **Problem/Request:**
