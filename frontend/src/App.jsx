@@ -42,7 +42,6 @@ export default function App() {
   const [chatInput, setChatInput] = useState('');
   const [chatProgress, setChatProgress] = useState({ value: 0, message: '' });
   const [loading, setLoading] = useState(false);
-  const [generatedSVGUrl, setGeneratedSVGUrl] = useState(null);
   const [downloadUrl, setDownloadUrl] = useState('');
   const [cmdInput, setCmdInput] = useState('');
   const [contextMenu, setContextMenu] = useState(null); // { type: 'object'|'canvas', x, y, targetId? }
@@ -104,9 +103,7 @@ export default function App() {
 
   const stateRef = useRef(appState);
   useEffect(() => { stateRef.current = appState; }, [appState]);
-  useEffect(() => () => {
-    if (generatedSVGUrl) URL.revokeObjectURL(generatedSVGUrl);
-  }, [generatedSVGUrl]);
+  // (SVG URL cleanup removed — no longer using image-based rendering)
 
   const logCmd = (msg) => {
     setAppState(p => ({ ...p, commandLog: [...p.commandLog, msg].slice(-8) }));
@@ -1267,33 +1264,106 @@ export default function App() {
     pushHistory([]);
   };
 
-  const insertSVGToCanvas = (svgString) => {
-    if (generatedSVGUrl) URL.revokeObjectURL(generatedSVGUrl);
-    const blob = new Blob([svgString], { type: 'image/svg+xml' });
-    const url = URL.createObjectURL(blob);
-    setGeneratedSVGUrl(url);
+  // ═══ Handle backend response: convert elements to CAD objects ═══
+  const handleBackendResponse = (data) => {
+    if (!data.elements || data.elements.length === 0) return;
 
-    const underlay = {
-      id: uuid(),
-      type: 'image',
-      layer: 'Подложка',
+    const cadElements = data.elements.map(el => ({
+      ...el,
+      id: el.id || uuid(),
+      selected: false,
+      visible: true,
       layerAssigned: true,
-      source: url,
-      points: [{ x: 0, y: 0 }],
-      width: 1200,
-      height: 900
-    };
+      // Normalize points from [x,y] arrays to {x,y} objects
+      points: el.points ? el.points.map(p => ({
+        x: Array.isArray(p) ? p[0] : p.x,
+        y: Array.isArray(p) ? p[1] : p.y,
+      })) : undefined,
+      // Normalize center from [x,y] to {x,y}
+      center: el.center ? {
+        x: Array.isArray(el.center) ? el.center[0] : el.center.x,
+        y: Array.isArray(el.center) ? el.center[1] : el.center.y,
+      } : undefined,
+    }));
+
+    setAppState(prev => {
+      const newElements = [...prev.elements, ...cadElements];
+      return { ...prev, elements: newElements, selectedElements: [] };
+    });
+    pushHistory([...stateRef.current.elements, ...cadElements]);
+
+    // Center view on generated elements
+    if (cadElements.length > 0) {
+      setTimeout(() => fitViewToElements(cadElements), 50);
+    }
+  };
+
+  // ═══ Fit view to a set of elements ═══
+  const fitViewToElements = (elements) => {
+    let minX = Infinity, minY = Infinity;
+    let maxX = -Infinity, maxY = -Infinity;
+
+    elements.forEach(el => {
+      if (el.points) {
+        el.points.forEach(p => {
+          minX = Math.min(minX, p.x);
+          minY = Math.min(minY, p.y);
+          maxX = Math.max(maxX, p.x);
+          maxY = Math.max(maxY, p.y);
+        });
+      }
+      if (el.center) {
+        const r = el.radius || 0;
+        minX = Math.min(minX, el.center.x - r);
+        minY = Math.min(minY, el.center.y - r);
+        maxX = Math.max(maxX, el.center.x + r);
+        maxY = Math.max(maxY, el.center.y + r);
+      }
+    });
+
+    if (minX === Infinity) return;
+
+    const padding = 100;
+    const canvasWidth = svgRef.current?.clientWidth || 800;
+    const canvasHeight = svgRef.current?.clientHeight || 600;
+
+    const contentWidth = maxX - minX + padding * 2;
+    const contentHeight = maxY - minY + padding * 2;
+
+    const scaleX = canvasWidth / contentWidth;
+    const scaleY = canvasHeight / contentHeight;
+    const newZoom = Math.min(scaleX, scaleY, 3);
+
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
 
     setAppState(p => ({
       ...p,
-      elements: [underlay],
-      selectedElements: [],
-      layers: p.layers.some(l => l.name === 'Подложка')
-        ? p.layers
-        : [...p.layers, { name: 'Подложка', visible: true, locked: false, lw: 0 }]
+      zoom: newZoom,
+      panOffset: {
+        x: canvasWidth / 2 - centerX * newZoom,
+        y: canvasHeight / 2 - centerY * newZoom,
+      }
     }));
-    pushHistory([underlay]);
-    setTimeout(() => zoomExtents(), 100);
+  };
+
+  // ═══ Sync layers after AI generation ═══
+  const syncLayersAfterGeneration = (data) => {
+    const usedLayers = data.layers_used || [];
+
+    setAppState(prevState => ({
+      ...prevState,
+      layers: prevState.layers.map(layer => {
+        if (usedLayers.includes(layer.name)) {
+          return { ...layer, visible: true, locked: false, hasContent: true };
+        }
+        if (layer.name === 'Штриховка') {
+          return { ...layer, visible: false };
+        }
+        return layer;
+      }),
+      activeLayer: 'Стены',
+    }));
   };
 
   const sendMessage = async (prompt) => {
@@ -1320,13 +1390,16 @@ export default function App() {
 
       const data = await response.json();
 
-      if (data.svg) {
+      // Add CAD elements to canvas
+      if (data.elements && data.elements.length > 0) {
         clearCanvas();
-        insertSVGToCanvas(data.svg);
+        handleBackendResponse(data);
+        syncLayersAfterGeneration(data);
       }
 
+      const engineLabel = data.engine_used ? ` Движок: ${data.engine_used}` : '';
       updateLastAiMessage(
-        `Готово! ${data.rooms_count} комнат, ${data.total_area}м². Чертёж отображён на канвасе.`
+        `Готово! ${data.rooms_count} комнат, ${data.total_area}м².${engineLabel} Чертёж отображён на канвасе.`
       );
       setDownloadUrl(`http://localhost:8011${data.download_url || ''}`);
       logCmd(`AI: готово, DXF ${data.download_url || ''}`);
@@ -1431,29 +1504,98 @@ export default function App() {
   };
 
   // Render SVG Elements
+  // ═══ Helper functions for arc/ellipse rendering ═══
+  const polarToCartesian = (cx, cy, r, angleDeg) => {
+    const rad = (angleDeg - 90) * Math.PI / 180;
+    return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+  };
+
+  const describeArc = (cx, cy, r, startAngle, endAngle) => {
+    const start = polarToCartesian(cx, cy, r, endAngle);
+    const end = polarToCartesian(cx, cy, r, startAngle);
+    const largeArcFlag = endAngle - startAngle <= 180 ? 0 : 1;
+    return ['M', start.x, start.y, 'A', r, r, 0, largeArcFlag, 0, end.x, end.y].join(' ');
+  };
+
+  const getLineweight = (layerName) => {
+    const weights = {
+      'Стены': 2.5,
+      'Двери': 1.5,
+      'Окна': 1.5,
+      'Мебель': 1.0,
+      'Размеры': 1.0,
+      'Текст': 1.0,
+      'Штриховка': 0.5,
+    };
+    return weights[layerName] || 1.0;
+  };
+
   const renderElements = () => {
-    const { elements, layers, selectedElements } = appState;
+    const { elements, layers, selectedElements, zoom } = appState;
 
     return elements.map(el => {
       const layer = layers.find(l => l.name === el.layer);
       if (!layer || !layer.visible) return null;
 
       const isSelected = selectedElements.includes(el.id);
-      const strokeWidth = layer.lw;
+      const strokeWidth = layer.lw || getLineweight(el.layer) / zoom;
+      const strokeColor = el.color || '#ffffff';
+      const stroke = isSelected ? '#4a9eff' : strokeColor;
 
       let shape = null;
-      if (el.type === 'line' && el.points.length >= 2) {
+
+      if (el.type === 'line' && el.points && el.points.length >= 2) {
         shape = <line x1={el.points[0].x} y1={el.points[0].y} x2={el.points[1].x} y2={el.points[1].y} />;
+
+      } else if (el.type === 'polyline' && el.points) {
+        const polyPoints = el.points.map(p => `${p.x},${p.y}`).join(' ');
+        shape = <polyline points={polyPoints} fill="none" />;
+
       } else if (el.type === 'circle') {
-        shape = <circle cx={el.points[0].x} cy={el.points[0].y} r={el.radius} />;
-      } else if (el.type === 'rect' || el.type === 'polygon' || el.type === 'polyline') {
-        const pts = el.points.map(p => `${p.x},${p.y}`).join(' ');
-        shape = el.type === 'polyline' ? <polyline points={pts} fill="none" /> : <polygon points={pts} fill="none" />;
+        // Support both center-based (from backend) and points-based (from drawing)
+        const cx = el.center ? el.center.x : el.points?.[0]?.x;
+        const cy = el.center ? el.center.y : el.points?.[0]?.y;
+        if (cx != null && cy != null) {
+          shape = <circle cx={cx} cy={cy} r={el.radius} />;
+        }
+
       } else if (el.type === 'arc') {
-        const [p1, p2, p3] = el.points;
-        shape = <path d={`M ${p1.x} ${p1.y} Q ${p2.x} ${p2.y} ${p3.x} ${p3.y}`} strokeWidth={strokeWidth} fill="none" />;
+        if (el.center && el.radius && el.start_angle != null && el.end_angle != null) {
+          // Backend arc with center/radius/angles
+          const arcPath = describeArc(el.center.x, el.center.y, el.radius, el.start_angle, el.end_angle);
+          shape = <path d={arcPath} fill="none" />;
+        } else if (el.points && el.points.length >= 3) {
+          // User-drawn arc (3-point quadratic)
+          const [p1, p2, p3] = el.points;
+          shape = <path d={`M ${p1.x} ${p1.y} Q ${p2.x} ${p2.y} ${p3.x} ${p3.y}`} fill="none" />;
+        }
+
+      } else if (el.type === 'ellipse') {
+        const cx = el.center ? el.center.x : el.points?.[0]?.x;
+        const cy = el.center ? el.center.y : el.points?.[0]?.y;
+        if (cx != null && cy != null) {
+          shape = <ellipse cx={cx} cy={cy} rx={el.radius} ry={el.radius * (el.ratio || 1)} fill="none" />;
+        }
+
+      } else if (el.type === 'rect' || el.type === 'polygon') {
+        if (el.points) {
+          const pts = el.points.map(p => `${p.x},${p.y}`).join(' ');
+          shape = <polygon points={pts} fill="none" />;
+        }
+
       } else if (el.type === 'text') {
-        shape = <text x={el.points[0].x} y={el.points[0].y} fill={isSelected ? '#4a9eff' : '#ffffff'} fontSize={14/appState.zoom} fontFamily="Inter, sans-serif">{el.text}</text>;
+        const tx = el.points?.[0]?.x ?? (el.center?.x ?? 0);
+        const ty = el.points?.[0]?.y ?? (el.center?.y ?? 0);
+        shape = (
+          <text x={tx} y={ty}
+            fill={isSelected ? '#4a9eff' : (el.color || '#ffffff')}
+            fontSize={(el.height || 14) / zoom}
+            fontFamily="monospace"
+            textAnchor="middle"
+            style={{ userSelect: 'none' }}
+          >{el.text}</text>
+        );
+
       } else if (el.type === 'image' || el.type === 'pdf') {
         const isPdf = el.type === 'pdf';
         shape = (
@@ -1467,23 +1609,23 @@ export default function App() {
         shape = (
           <g>
             <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} fill="none" stroke={isSelected ? '#4a9eff' : '#ffffff'} strokeWidth={strokeWidth} strokeDasharray="5,5" />
-            <text x={midX} y={midY - 5/appState.zoom} fill={isSelected ? '#4a9eff' : '#ffffff'} fontSize={12/appState.zoom} textAnchor="middle" style={{ userSelect: 'none' }}>{distance}</text>
+            <text x={midX} y={midY - 5/zoom} fill={isSelected ? '#4a9eff' : '#ffffff'} fontSize={12/zoom} textAnchor="middle" style={{ userSelect: 'none' }}>{distance}</text>
           </g>
         );
       } else if (el.type === 'leader') {
         const [p1, p2] = el.points;
         const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
-        const arrowLen = 10 / appState.zoom;
+        const arrowLen = 10 / zoom;
         const arrowPt1 = { x: p1.x + arrowLen * Math.cos(angle + Math.PI / 8), y: p1.y + arrowLen * Math.sin(angle + Math.PI / 8) };
         const arrowPt2 = { x: p1.x + arrowLen * Math.cos(angle - Math.PI / 8), y: p1.y + arrowLen * Math.sin(angle - Math.PI / 8) };
-        const landingLen = 20 / appState.zoom;
+        const landingLen = 20 / zoom;
         const dir = p2.x > p1.x ? 1 : -1;
         const p3 = { x: p2.x + landingLen * dir, y: p2.y };
         shape = (
           <g>
             <polyline points={`${p1.x},${p1.y} ${p2.x},${p2.y} ${p3.x},${p3.y}`} stroke={isSelected ? '#4a9eff' : '#ffffff'} strokeWidth={strokeWidth} fill="none" />
             <polygon points={`${p1.x},${p1.y} ${arrowPt1.x},${arrowPt1.y} ${arrowPt2.x},${arrowPt2.y}`} fill={isSelected ? '#4a9eff' : '#ffffff'} />
-            <text x={p3.x + (dir > 0 ? 5/appState.zoom : -5/appState.zoom)} y={p3.y + 4/appState.zoom} fill={isSelected ? '#4a9eff' : '#ffffff'} fontSize={12/appState.zoom} textAnchor={dir > 0 ? "start" : "end"} style={{ userSelect: 'none' }}>{el.text}</text>
+            <text x={p3.x + (dir > 0 ? 5/zoom : -5/zoom)} y={p3.y + 4/zoom} fill={isSelected ? '#4a9eff' : '#ffffff'} fontSize={12/zoom} textAnchor={dir > 0 ? "start" : "end"} style={{ userSelect: 'none' }}>{el.text}</text>
           </g>
         );
       } else if (el.type === 'table') {
@@ -1511,7 +1653,7 @@ export default function App() {
                   pointerEvents="all"
                   onDoubleClick={(e) => handleTableCellDoubleClick(e, el, r, c)}
                 />
-                <text x={cx + w/2} y={cy + h/2 + 4/appState.zoom} fill={isSelected ? '#4a9eff' : '#ffffff'} fontSize={12/appState.zoom} textAnchor="middle" style={{ pointerEvents: 'none', userSelect: 'none' }}>
+                <text x={cx + w/2} y={cy + h/2 + 4/zoom} fill={isSelected ? '#4a9eff' : '#ffffff'} fontSize={12/zoom} textAnchor="middle" style={{ pointerEvents: 'none', userSelect: 'none' }}>
                   {text}
                 </text>
               </g>
@@ -1525,20 +1667,23 @@ export default function App() {
 
       const isSpecial = ['text', 'dim', 'image', 'pdf', 'leader', 'table'].includes(el.type);
 
+      // Compute grip points: use el.points if available, else center
+      const gripPoints = el.points || (el.center ? [el.center] : []);
+
       return (
         <g
           key={el.id}
           className={`cad-object ${layer.locked ? 'locked' : ''}`}
-          style={{ pointerEvents: layer.locked ? 'none' : 'auto' }}
+          style={{ pointerEvents: layer.locked ? 'none' : 'auto', cursor: layer.locked ? 'default' : 'pointer' }}
           onMouseDown={(e) => handleObjectMouseDown(e, el)}
           onContextMenu={(e) => handleObjectContextMenu(e, el)}
         >
-          {isSpecial ? null : React.cloneElement(shape, { stroke: "transparent", strokeWidth: 10/appState.zoom, pointerEvents: "stroke", fill: "none" })}
-          {isSpecial ? shape : React.cloneElement(shape, { stroke: isSelected ? '#4a9eff' : '#ffffff', strokeWidth: strokeWidth, fill: "none" })}
+          {isSpecial ? null : React.cloneElement(shape, { stroke: "transparent", strokeWidth: 10/zoom, pointerEvents: "stroke", fill: "none" })}
+          {isSpecial ? shape : React.cloneElement(shape, { stroke, strokeWidth, fill: "none" })}
           {isSelected && !layer.locked && (
             <g>
-              {el.points.map((p, idx) => (
-                <rect key={idx} x={p.x - 3/appState.zoom} y={p.y - 3/appState.zoom} width={6/appState.zoom} height={6/appState.zoom} className="cad-grip" strokeWidth={1/appState.zoom} />
+              {gripPoints.map((p, idx) => (
+                <rect key={idx} x={p.x - 3/zoom} y={p.y - 3/zoom} width={6/zoom} height={6/zoom} className="cad-grip" strokeWidth={1/zoom} />
               ))}
             </g>
           )}
@@ -2158,7 +2303,17 @@ export default function App() {
           <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
             <span>X: {mousePos.x.toFixed(2)}</span>
             <span>Y: {mousePos.y.toFixed(2)}</span>
-            {appState.selectedElements.length > 0 && <span style={{ color: '#4a9eff', fontWeight: 600 }}>Выбрано: {appState.selectedElements.length}</span>}
+            {appState.selectedElements.length > 0 && (() => {
+              const selEl = appState.elements.find(e => e.id === appState.selectedElements[0]);
+              const layerInfo = selEl ? selEl.layer : '';
+              const typeInfo = selEl ? selEl.type : '';
+              return (
+                <span style={{ color: '#4a9eff', fontWeight: 600 }}>
+                  {appState.selectedElements.length} объект{appState.selectedElements.length > 1 ? 'ов' : ''} выбран{appState.selectedElements.length === 1 ? '' : 'о'}
+                  {selEl && <> | Слой: {layerInfo} | Тип: {typeInfo}</>}
+                </span>
+              );
+            })()}
           </div>
           <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
             {[
@@ -2204,9 +2359,31 @@ export default function App() {
         >
           {contextMenu.type === 'object' ? (
             <>
+              <button className="context-menu-item" onClick={() => {
+                const el = appState.elements.find(e => e.id === contextMenu.targetId);
+                if (el) {
+                  const info = `Тип: ${el.type}\nСлой: ${el.layer}\nID: ${el.id}`;
+                  alert(info);
+                }
+                setContextMenu(null);
+              }}>
+                <i className="fa-solid fa-circle-info"></i><span>Свойства</span>
+              </button>
               <button className="context-menu-item" onClick={() => { copySelectionToClipboard(false); setContextMenu(null); }}>
                 <i className="fa-regular fa-copy"></i><span>Копировать (Ctrl+C)</span>
               </button>
+              <button className="context-menu-item" onClick={() => {
+                const idSet = new Set(appState.selectedElements);
+                if (idSet.size === 0) { setContextMenu(null); return; }
+                const newElements = appState.elements.filter(el => !idSet.has(el.id));
+                setAppState(p => ({ ...p, elements: newElements, selectedElements: [] }));
+                pushHistory(newElements);
+                logCmd(`Удалено ${idSet.size} объектов`);
+                setContextMenu(null);
+              }}>
+                <i className="fa-solid fa-trash"></i><span>Удалить</span>
+              </button>
+              <div className="context-menu-separator"></div>
               <button className="context-menu-item" onClick={() => { setTool('rotate', 'ROTATE'); setContextMenu(null); }}>
                 <i className="fa-solid fa-rotate"></i><span>Поворот</span>
               </button>
@@ -2219,6 +2396,23 @@ export default function App() {
               <button className="context-menu-item" onClick={() => { showSelectionDimensions(); setContextMenu(null); }}>
                 <i className="fa-solid fa-ruler-combined"></i><span>Размер (X/Y/Z)</span>
               </button>
+              <div className="context-menu-separator"></div>
+              {/* Move to Layer submenu */}
+              {['Стены', 'Двери', 'Окна', 'Мебель', 'Текст', 'Размеры'].map(layerName => (
+                <button key={layerName} className="context-menu-item" onClick={() => {
+                  const selSet = new Set(appState.selectedElements);
+                  const newElements = appState.elements.map(el =>
+                    selSet.has(el.id) ? { ...el, layer: layerName, layerAssigned: true } : el
+                  );
+                  setAppState(p => ({ ...p, elements: newElements }));
+                  pushHistory(newElements);
+                  logCmd(`Перемещено на слой "${layerName}"`);
+                  setContextMenu(null);
+                }}>
+                  <i className="fa-solid fa-layer-group" style={{ fontSize: 10 }}></i>
+                  <span style={{ fontSize: 12 }}>→ {layerName}</span>
+                </button>
+              ))}
             </>
           ) : (
             <>

@@ -33,8 +33,11 @@ class RoomWithCoords(BaseModel):
 
 class GenerateResponse(BaseModel):
     job_id: str
-    svg: str
+    elements: list = []
     download_url: str
     rooms_count: int
     total_area: float
     message: str
+    layers_used: list[str] = []
+    engine_used: str = "constraint_solver"
+
