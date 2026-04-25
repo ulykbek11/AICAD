@@ -544,7 +544,11 @@ export default function App() {
 
   const handleCanvasContextMenu = (e) => {
     e.preventDefault();
-    setContextMenu({ type: 'canvas', x: e.clientX, y: e.clientY });
+    if (appState.selectedElements.length > 0) {
+      setContextMenu({ type: 'object', x: e.clientX, y: e.clientY, targetId: appState.selectedElements[0] });
+    } else {
+      setContextMenu({ type: 'canvas', x: e.clientX, y: e.clientY });
+    }
   };
 
   const handleObjectContextMenu = (e, el) => {
