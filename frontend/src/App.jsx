@@ -5,14 +5,14 @@ import './index.css';
 const uuid = () => Math.random().toString(36).substring(2, 10);
 
 const defaultLayers = [
-  { name: 'Стены',     visible: true, locked: false, lw: 0.35 },
-  { name: 'Двери',     visible: true, locked: false, lw: 0.25 },
-  { name: 'Окна',      visible: true, locked: false, lw: 0.25 },
-  { name: 'Размеры',   visible: true, locked: false, lw: 0.13 },
-  { name: 'Мебель',    visible: true, locked: false, lw: 0.18 },
-  { name: 'Текст',     visible: true, locked: false, lw: 0.13 },
-  { name: 'Штриховка', visible: false,locked: false, lw: 0.09 },
-  { name: 'Подложка',  visible: true, locked: false, lw: 0.0 },
+  { name: 'Стены',     visible: true, locked: false, lw: 3.5 },
+  { name: 'Двери',     visible: true, locked: false, lw: 2.5 },
+  { name: 'Окна',      visible: true, locked: false, lw: 2.5 },
+  { name: 'Размеры',   visible: true, locked: false, lw: 3.0 },
+  { name: 'Мебель',    visible: true, locked: false, lw: 2.0 },
+  { name: 'Текст',     visible: true, locked: false, lw: 2.0 },
+  { name: 'Штриховка', visible: false,locked: false, lw: 1.0 },
+  { name: 'Подложка',  visible: true, locked: false, lw: 1.0 },
 ];
 
 export default function App() {
@@ -1519,15 +1519,15 @@ export default function App() {
 
   const getLineweight = (layerName) => {
     const weights = {
-      'Стены': 2.5,
-      'Двери': 1.5,
-      'Окна': 1.5,
-      'Мебель': 1.0,
-      'Размеры': 1.0,
-      'Текст': 1.0,
-      'Штриховка': 0.5,
+      'Стены': 3.5,
+      'Двери': 2.5,
+      'Окна': 2.5,
+      'Мебель': 2.0,
+      'Размеры': 3.0,
+      'Текст': 2.0,
+      'Штриховка': 1.0,
     };
-    return weights[layerName] || 1.0;
+    return weights[layerName] || 2.0;
   };
 
   const renderElements = () => {
@@ -1948,6 +1948,56 @@ export default function App() {
             <div style={{ textAlign: 'center', fontSize: 10, color: '#5568A0', paddingBottom: 2, fontWeight: 500 }}>Экспорт</div>
           </div>
         )}
+
+        <div style={{ flex: 1 }}></div>
+
+        {/* ═══ HORIZONTAL LAYER MANAGER ═══ */}
+        <div style={{ display: 'flex', alignItems: 'center', padding: '0 16px', borderLeft: '1px solid #1e2a3a', gap: 12, minWidth: 350, overflowX: 'auto' }} className="no-scroll">
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%', justifyContent: 'center', width: '100%' }}>
+               <div style={{ fontSize: 10, color: '#5568A0', fontWeight: 700, textTransform: 'uppercase', marginBottom: 4, display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                 Слои
+                 {appState.selectedElements.length > 0 && (
+                   <span style={{ color: '#4a9eff', cursor: 'pointer', textTransform: 'none' }} onClick={() => setIsLayerModalOpen(true)}>Назначить слой выделенным ({appState.selectedElements.length})</span>
+                 )}
+               </div>
+               <div style={{ display: 'flex', gap: 6, minWidth: 'min-content' }}>
+                 {hasAssignedLayers ? visibleLayersInPanel.map(layer => {
+                    const isActive = appState.activeLayer === layer.name;
+                    return (
+                      <div
+                        key={layer.name}
+                        onClick={() => setAppState(p => ({ ...p, activeLayer: layer.name }))}
+                        style={{
+                          display: 'flex', alignItems: 'center', padding: '4px 8px', cursor: 'pointer',
+                          fontSize: 12, fontWeight: isActive ? 600 : 400,
+                          borderRadius: '4px',
+                          background: isActive ? 'rgba(74,158,255,0.15)' : '#1a2030',
+                          border: isActive ? '1px solid #4a9eff' : '1px solid #2e3e54',
+                          color: isActive ? '#e0e8f0' : '#8898b0',
+                          whiteSpace: 'nowrap'
+                        }}
+                      >
+                        <i
+                          className={`fa-regular ${layer.visible ? 'fa-eye' : 'fa-eye-slash'}`}
+                          style={{ color: layer.visible ? '#7a9eff' : '#5568A0', fontSize: 12, marginRight: 6 }}
+                          onClick={(e) => { e.stopPropagation(); toggleLayerAttr(layer.name, 'visible'); }}
+                        ></i>
+                        <i
+                          className={`fa-solid ${layer.locked ? 'fa-lock' : 'fa-lock-open'}`}
+                          style={{ color: layer.locked ? '#e8a040' : '#5568A0', fontSize: 11, marginRight: 6 }}
+                          onClick={(e) => { e.stopPropagation(); toggleLayerAttr(layer.name, 'locked'); }}
+                        ></i>
+                        {layer.name} <span style={{ opacity: 0.6, fontSize: 10, marginLeft: 6 }}>({appState.elements.filter(el => el.layer === layer.name).length})</span>
+                      </div>
+                    );
+                 }) : (
+                    <div style={{ fontSize: 12, color: '#4a5a7a', padding: '4px 8px', background: '#1a2030', borderRadius: 4, border: '1px solid #2e3e54' }}>
+                       Нет слоев. Нарисуйте объекты или используйте AI.
+                    </div>
+                 )}
+               </div>
+            </div>
+        </div>
       </div>
 
       {/* ═══ MAIN AREA (left bar + canvas + right panel) ═══ */}
@@ -2069,115 +2119,6 @@ export default function App() {
         <div style={{ width: rightPanelWidth, display: 'flex', flexDirection: 'column', borderLeft: '1px solid #1e2a3a', background: '#10101e', flexShrink: 0, zIndex: 5, position: 'relative', boxShadow: '-4px 0 20px rgba(0,0,0,0.4)' }}>
           {/* Resize handle */}
           <div className={`resize-h ${resizing === 'right' ? 'active' : ''}`} onMouseDown={() => setResizing('right')}></div>
-
-          {/* LAYER MANAGER */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderBottom: '1px solid #1e2a3a', minHeight: 0 }}>
-            <div style={{ padding: '10px 16px 8px', borderBottom: '1px solid #1e2a3a' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: '#e0e8f0', letterSpacing: '0.3px' }}>Слои</div>
-                {appState.selectedElements.length > 0 && (
-                  <button
-                    onClick={() => setIsLayerModalOpen(true)}
-                    title="Назначить слой выделенным объектам"
-                    style={{
-                      padding: '3px 10px', fontSize: 11, fontWeight: 600,
-                      background: 'rgba(74,158,255,0.15)', border: '1px solid #4a9eff',
-                      borderRadius: 5, color: '#4a9eff', cursor: 'pointer',
-                      display: 'flex', alignItems: 'center', gap: 5,
-                      transition: 'all 0.15s',
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(74,158,255,0.3)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = 'rgba(74,158,255,0.15)'; }}
-                  >
-                    <i className="fa-solid fa-layer-group" style={{ fontSize: 10 }}></i>
-                    Назначить слой
-                  </button>
-                )}
-              </div>
-              <div style={{ fontSize: 12, color: '#5568A0', marginTop: 4 }}>
-                Текущий: <span style={{ color: '#4a9eff', fontWeight: 600 }}>{currentLayerLabel}</span>
-                {appState.selectedElements.length > 0 && (
-                  <span style={{ color: '#6878a0', marginLeft: 8 }}>· Выбрано: {appState.selectedElements.length}</span>
-                )}
-              </div>
-            </div>
-
-            {hasAssignedLayers ? (
-              <>
-                {/* Layer table header */}
-                <div style={{ display: 'flex', alignItems: 'center', padding: '5px 16px', fontSize: 10, color: '#4a5a7a', borderBottom: '1px solid #1a1a2e', fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase' }}>
-                  <div style={{ width: 28, textAlign: 'center' }}>👁</div>
-                  <div style={{ width: 28, textAlign: 'center' }}>🔒</div>
-                  <div style={{ width: 74, fontSize: 10 }}>Толщ.</div>
-                  <div style={{ flex: 1, marginLeft: 6 }}>Имя слоя</div>
-                  <div style={{ width: 24, textAlign: 'center', fontSize: 10 }}>№</div>
-                </div>
-
-                {/* Layer list — only layers with at least one element */}
-                <div style={{ flex: 1, overflowY: 'auto' }} className="no-scroll">
-                  {visibleLayersInPanel.map(layer => {
-                    const count = appState.elements.filter(el => el.layer === layer.name).length;
-                    const isActive = appState.activeLayer === layer.name;
-                    return (
-                      <div
-                        key={layer.name}
-                        onClick={() => setAppState(p => ({ ...p, activeLayer: layer.name }))}
-                        style={{
-                          display: 'flex', alignItems: 'center', padding: '6px 16px', cursor: 'pointer',
-                          fontSize: 12, fontWeight: isActive ? 600 : 400,
-                          borderLeft: isActive ? '3px solid #4a9eff' : '3px solid transparent',
-                          background: isActive ? 'rgba(74,158,255,0.08)' : 'transparent',
-                          color: isActive ? '#e0e8f0' : '#8898b0',
-                          transition: 'all 0.1s',
-                        }}
-                        onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}
-                        onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
-                      >
-                        <div style={{ width: 28, textAlign: 'center' }} onClick={(e) => { e.stopPropagation(); toggleLayerAttr(layer.name, 'visible'); }}>
-                          <i className={`fa-regular ${layer.visible ? 'fa-eye' : 'fa-eye-slash'}`} style={{ color: layer.visible ? '#7a9eff' : '#3a3a5a', fontSize: 12 }}></i>
-                        </div>
-                        <div style={{ width: 28, textAlign: 'center' }} onClick={(e) => { e.stopPropagation(); toggleLayerAttr(layer.name, 'locked'); }}>
-                          <i className={`fa-solid ${layer.locked ? 'fa-lock' : 'fa-lock-open'}`} style={{ color: layer.locked ? '#e8a040' : '#3a3a5a', fontSize: 11 }}></i>
-                        </div>
-                        <div style={{ width: 74, display: 'flex', justifyContent: 'center' }} onClick={(e) => e.stopPropagation()}>
-                          <input
-                            type="number"
-                            min="0"
-                            max="5"
-                            step="0.01"
-                            value={layer.lw}
-                            onChange={(e) => updateLayerLineweight(layer.name, e.target.value)}
-                            style={{
-                              width: 58,
-                              padding: '2px 4px',
-                              fontSize: 10,
-                              color: '#c0d0e0',
-                              background: '#161a2a',
-                              border: '1px solid #2a3550',
-                              borderRadius: 4,
-                              outline: 'none',
-                              fontFamily: 'monospace',
-                            }}
-                            title="Толщина линии слоя"
-                          />
-                        </div>
-                        <div style={{ flex: 1, marginLeft: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{layer.name}</div>
-                        <div style={{ width: 24, textAlign: 'center', fontSize: 10, color: '#4a5a7a', fontWeight: 700 }}>{count}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </>
-            ) : (
-              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-                <div style={{ textAlign: 'center', color: '#3a4a6a' }}>
-                  <i className="fa-solid fa-layer-group" style={{ fontSize: 28, marginBottom: 8, display: 'block', opacity: 0.4 }}></i>
-                  <div style={{ fontSize: 13, fontWeight: 500 }}>Слои не используются</div>
-                  <div style={{ fontSize: 11, marginTop: 4, color: '#2a3a5a', lineHeight: 1.5 }}>Нарисуйте объекты или попросите AI сгенерировать чертёж — слои появятся здесь автоматически</div>
-                </div>
-              </div>
-            )}
-          </div>
 
           {/* AI CHAT */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, background: '#0c0c1a' }}>
