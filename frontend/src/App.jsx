@@ -130,11 +130,13 @@ export default function App() {
         });
       }
       if (el.type === 'circle' && el.radius) {
-        const c = el.points[0];
-        if (c.x - el.radius < minX) minX = c.x - el.radius;
-        if (c.x + el.radius > maxX) maxX = c.x + el.radius;
-        if (c.y - el.radius < minY) minY = c.y - el.radius;
-        if (c.y + el.radius > maxY) maxY = c.y + el.radius;
+        const c = el.points ? el.points[0] : el.center;
+        if (c) {
+          if (c.x - el.radius < minX) minX = c.x - el.radius;
+          if (c.x + el.radius > maxX) maxX = c.x + el.radius;
+          if (c.y - el.radius < minY) minY = c.y - el.radius;
+          if (c.y + el.radius > maxY) maxY = c.y + el.radius;
+        }
       }
     });
 
@@ -355,11 +357,13 @@ export default function App() {
         if(p.y < minY) minY = p.y; if(p.y > maxY) maxY = p.y;
       });
       if (el.type === 'circle' && el.radius) {
-        const c = el.points[0];
-        if(c.x-el.radius < minX) minX = c.x-el.radius;
-        if(c.x+el.radius > maxX) maxX = c.x+el.radius;
-        if(c.y-el.radius < minY) minY = c.y-el.radius;
-        if(c.y+el.radius > maxY) maxY = c.y+el.radius;
+        const c = el.points ? el.points[0] : el.center;
+        if (c) {
+          if(c.x-el.radius < minX) minX = c.x-el.radius;
+          if(c.x+el.radius > maxX) maxX = c.x+el.radius;
+          if(c.y-el.radius < minY) minY = c.y-el.radius;
+          if(c.y+el.radius > maxY) maxY = c.y+el.radius;
+        }
       }
     });
     
@@ -411,9 +415,9 @@ export default function App() {
 
   const getElementBounds = (el) => {
     if (!el) return null;
-    if (el.type === 'circle' && el.points?.[0] && Number.isFinite(el.radius)) {
-      const c = el.points[0];
-      return { minX: c.x - el.radius, minY: c.y - el.radius, maxX: c.x + el.radius, maxY: c.y + el.radius };
+    if (el.type === 'circle' && Number.isFinite(el.radius)) {
+      const c = el.points ? el.points[0] : el.center;
+      if (c) return { minX: c.x - el.radius, minY: c.y - el.radius, maxX: c.x + el.radius, maxY: c.y + el.radius };
     }
     if ((el.type === 'image' || el.type === 'pdf' || el.type === 'table') && el.points?.[0]) {
       const p = el.points[0];
@@ -579,8 +583,11 @@ export default function App() {
       elements.forEach(el => {
         const checkPoints = [];
         if (el.points) checkPoints.push(...el.points);
-        if (el.type === 'circle' && el.points[0]) checkPoints.push(el.points[0]);
-        if (el.type === 'line' && el.points.length === 2) {
+        if (el.type === 'circle') {
+          if (el.points && el.points[0]) checkPoints.push(el.points[0]);
+          else if (el.center) checkPoints.push(el.center);
+        }
+        if (el.type === 'line' && el.points && el.points.length === 2) {
           checkPoints.push({
             x: (el.points[0].x + el.points[1].x) / 2,
             y: (el.points[0].y + el.points[1].y) / 2
@@ -640,11 +647,13 @@ export default function App() {
           if(p.y < minY) minY=p.y; if(p.y > maxY) maxY=p.y;
         });
         if (el.type === 'circle' && el.radius) {
-          const c = el.points[0];
-          if(c.x-el.radius < minX) minX=c.x-el.radius;
-          if(c.x+el.radius > maxX) maxX=c.x+el.radius;
-          if(c.y-el.radius < minY) minY=c.y-el.radius;
-          if(c.y+el.radius > maxY) maxY=c.y+el.radius;
+          const c = el.points ? el.points[0] : el.center;
+          if (c) {
+            if(c.x-el.radius < minX) minX=c.x-el.radius;
+            if(c.x+el.radius > maxX) maxX=c.x+el.radius;
+            if(c.y-el.radius < minY) minY=c.y-el.radius;
+            if(c.y+el.radius > maxY) maxY=c.y+el.radius;
+          }
         }
       });
       if (minX === Infinity) return;
@@ -1075,22 +1084,29 @@ export default function App() {
       const selected = appState.elements.filter(el => {
         const layer = appState.layers.find(l => l.name === el.layer);
         if (!layer || layer.locked || !layer.visible) return false;
-        if (!el.points) return false;
 
         let insideCnt = 0;
         let crossCnt = 0;
-        el.points.forEach(pt => {
-          if (pt.x >= minX && pt.x <= maxX && pt.y >= minY && pt.y <= maxY) insideCnt++;
-        });
-
-        if (el.type === 'circle') {
-          const cx = el.points[0].x, cy = el.points[0].y, r = el.radius;
-          if (cx-r >= minX && cx+r <= maxX && cy-r >= minY && cy+r <= maxY) insideCnt += 2;
-          else if (cx >= minX && cx <= maxX && cy >= minY && cy <= maxY) crossCnt++;
+        if (el.points) {
+          el.points.forEach(pt => {
+            if (pt.x >= minX && pt.x <= maxX && pt.y >= minY && pt.y <= maxY) insideCnt++;
+          });
         }
 
+        if (el.type === 'circle') {
+          const c = el.points ? el.points[0] : el.center;
+          if (c) {
+            const cx = c.x, cy = c.y, r = el.radius || 0;
+            if (cx-r >= minX && cx+r <= maxX && cy-r >= minY && cy+r <= maxY) insideCnt += 2;
+            else if (cx >= minX && cx <= maxX && cy >= minY && cy <= maxY) crossCnt++;
+          }
+        }
+
+        if (!el.points && el.type !== 'circle') return false;
+
         if (mode === 'inside') {
-          return insideCnt === (el.points.length || 1);
+          const ptCount = el.points ? el.points.length : (el.type === 'circle' ? 2 : 1);
+          return insideCnt === (ptCount || 1);
         } else {
           return insideCnt > 0 || crossCnt > 0;
         }
