@@ -1,0 +1,5 @@
+INFO:services.layout_algorithm:topology zones: {'day': ['r1', 'r2', 'r3', 'r4',
+INFO:services.layout_algorithm:zone_positions: {'day': 'center_bottom'}
+INFO:services.layout_algorithm:zone_grid: Not found
+INFO:services.layout_algorithm:col_x: {0: 0.0, 1: 0.15, 2: 20.28504870234938}
+INFO:services.layout_algorithm:row_y: {0: 0.0, 1: 0.15, 2: 0.3}

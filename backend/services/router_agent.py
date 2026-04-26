@@ -39,7 +39,8 @@ def classify_request(prompt: str) -> dict:
     try:
         model = genai.GenerativeModel("gemini-2.5-flash")
         response = model.generate_content(
-            f"{ROUTER_PROMPT}\n\nЗапрос пользователя: {prompt}"
+            f"{ROUTER_PROMPT}\n\nЗапрос пользователя: {prompt}",
+            request_options={"timeout": 60}
         )
         text = response.text.strip()
         text = re.sub(r"```json\s*", "", text)

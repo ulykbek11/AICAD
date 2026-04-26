@@ -1391,11 +1391,11 @@ export default function App() {
       setLoading(true);
       setDownloadUrl('');
       addMessage('user', prompt);
-      addMessage('assistant', 'Генерирую чертёж...');
-      updateProgress(30, 'Генерация...');
-      logCmd("AI_GENERATE");
+      addMessage('assistant', 'Анализирую запрос...');
+      updateProgress(10, 'Анализ...');
+      logCmd("AI_REQUEST");
 
-      const response = await fetch("http://localhost:8011/api/chat", {
+      const response = await fetch("http://127.0.0.1:8000/api/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -1415,15 +1415,21 @@ export default function App() {
         clearCanvas();
         handleBackendResponse(data);
         syncLayersAfterGeneration(data);
+        const engineLabel = data.engine_used ? ` Движок: ${data.engine_used}` : '';
+        updateLastAiMessage(
+          `Готово! ${data.rooms_count} комнат, ${data.total_area}м².${engineLabel} Чертёж отображён на канвасе.`
+        );
+        if (data.download_url) {
+          setDownloadUrl(`http://127.0.0.1:8000${data.download_url}`);
+          logCmd(`AI: готово, DXF ${data.download_url}`);
+        }
+      } else {
+        updateLastAiMessage(data.message || 'Готово!');
+        logCmd(`AI: ${data.message || 'Ответ получен'}`);
       }
 
-      const engineLabel = data.engine_used ? ` Движок: ${data.engine_used}` : '';
-      updateLastAiMessage(
-        `Готово! ${data.rooms_count} комнат, ${data.total_area}м².${engineLabel} Чертёж отображён на канвасе.`
-      );
-      setDownloadUrl(`http://localhost:8011${data.download_url || ''}`);
-      logCmd(`AI: готово, DXF ${data.download_url || ''}`);
       setChatProgress({ value: 100, message: 'Готово' });
+      setTimeout(() => setChatProgress({ value: 0, message: '' }), 2000);
     } catch (error) {
       updateLastAiMessage(`Ошибка: ${error.message}`);
       logCmd(`AI_ERROR: ${error.message}`);

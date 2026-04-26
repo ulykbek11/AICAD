@@ -98,24 +98,32 @@ def detect_intent(prompt: str) -> Intent:
     if not text:
         return "offtopic"
 
-    if is_cad_prompt(text):
+    if text in NON_CAD_HINTS:
+        return "chat"
+
+    generate_keywords = [
+        "сгенерируй", "создай", "нарисуй", "построй", "сделай план", 
+        "сделай чертеж", "чертеж", "план", "схему"
+    ]
+    
+    # If the user explicitly asks to generate/create a plan/drawing
+    is_generate = False
+    for keyword in generate_keywords:
+        if keyword in text:
+            is_generate = True
+            break
+            
+    if is_generate:
         return "generate"
 
-    project_keywords = (
-        "aicad",
-        "cad",
-        "dxf",
-        "svg",
-        "слой",
-        "команда",
-        "инструмент",
-        "чертеж",
-        "чертёж",
-        "план",
-    )
-    if any(k in text for k in project_keywords) or text in NON_CAD_HINTS:
+    project_keywords = [
+        "aicad", "cad", "dxf", "svg", "слой", "команда", "инструмент", 
+        "как", "почему", "зачем", "алгоритм", "проект"
+    ]
+    if any(k in text for k in project_keywords):
         return "chat"
-    return "offtopic"
+        
+    return "chat" # Default to chat to keep conversation flowing, unless it's completely gibberish
 
 
 def answer_project_chat(prompt: str) -> str:
@@ -127,10 +135,11 @@ def answer_project_chat(prompt: str) -> str:
         f"Вопрос: {prompt}"
     )
     try:
-        response = model.generate_content(chat_prompt)
+        response = model.generate_content(chat_prompt, request_options={"timeout": 60})
         text = (response.text or "").strip()
         return text or "Я могу помочь по AICAD: генерация планов, DXF/SVG, слои и инструменты."
-    except Exception:
+    except Exception as e:
+        logger.error(f"Ошибка LLM: {e}")
         return "Я могу помочь по AICAD: генерация планов, DXF/SVG, слои и инструменты."
 
 
@@ -138,7 +147,7 @@ def generate_room_graph(prompt: str) -> dict:
     text = ""
     try:
         model = _build_model("gemini-2.5-flash")
-        response = model.generate_content(f"{SYSTEM_PROMPT}\n\nЗапрос пользователя: {prompt}")
+        response = model.generate_content(f"{SYSTEM_PROMPT}\n\nЗапрос пользователя: {prompt}", request_options={"timeout": 60})
 
         text = (response.text or "").strip()
         logger.debug(f"Сырой ответ Gemini: {text}")
