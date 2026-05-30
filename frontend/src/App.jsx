@@ -15,6 +15,17 @@ const defaultLayers = [
   { name: 'Подложка',  visible: true, locked: false, lw: 1.0 },
 ];
 
+const LAYER_NAME_MAP = {
+  'Стены': 'Walls',
+  'Двери': 'Doors',
+  'Окна': 'Windows',
+  'Размеры': 'Dimensions',
+  'Мебель': 'Furniture',
+  'Текст': 'Text',
+  'Штриховка': 'Hatch',
+  'Подложка': 'Underlay',
+};
+
 export default function App() {
   const [appState, setAppState] = useState({
     activeTool: 'select',
@@ -39,6 +50,7 @@ export default function App() {
 
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [activeTab, setActiveTab] = useState('ГЛАВНАЯ');
+  const [language, setLanguage] = useState('ru');
   const [chatInput, setChatInput] = useState('');
   const [chatProgress, setChatProgress] = useState({ value: 0, message: '' });
   const [loading, setLoading] = useState(false);
@@ -67,6 +79,239 @@ export default function App() {
   const [rightPanelWidth, setRightPanelWidth] = useState(360);
   const [bottomPanelHeight, setBottomPanelHeight] = useState(110);
   const [resizing, setResizing] = useState(null); // 'right' | 'bottom' | null
+
+  const i18n = {
+    ru: {
+      welcomeLog: 'Добро пожаловать в AICAD. Введите команду или выберите инструмент.',
+      assistantGreeting: 'Привет! Я AI-ассистент. Опишите что хотите нарисовать — я помогу создать чертёж.',
+      tabs: {
+        home: 'ГЛАВНАЯ',
+        insert: 'ВСТАВКА',
+        annotate: 'АННОТАЦИИ',
+        output: 'ВЫВОД',
+      },
+      langRu: 'РУС',
+      langEn: 'ENG',
+      layers: 'Слои',
+      assignLayerToSelection: 'Назначить слой выделенным',
+      noLayers: 'Нет слоев. Нарисуйте объекты или используйте AI.',
+      leftSelect: 'Выбор [Esc]',
+      leftPan: 'Панорама',
+      leftUndo: 'Отменить [Ctrl+Z]',
+      leftRedo: 'Повторить [Ctrl+Y]',
+      leftDelete: 'Удалить [E]',
+      zoomIn: 'Увеличить',
+      zoomOut: 'Уменьшить',
+      zoomExtents: 'Показать всё (Zoom Extents)',
+      selectionSize: 'Размер выделения',
+      objectsCount: 'Объектов',
+      selectedSuffixSingle: 'объект выбран',
+      selectedSuffixPlural: 'объектов выбрано',
+      layerText: 'Слой',
+      typeText: 'Тип',
+      snap: 'Привязка',
+      grid: 'Сетка',
+      ortho: 'Орто',
+      objectSnap: 'Объектная',
+      assistantTitle: 'AI Ассистент',
+      downloadDxf: 'Скачать DXF',
+      describeDrawing: 'Опишите чертёж...',
+      generating: 'Генерация...',
+      commandPlaceholder: 'Введите команду (HELP для списка)...',
+      fullscreen: 'Во весь экран',
+      tabDraw: 'Рисование',
+      tabEdit: 'Редактирование',
+      tabInsert: 'Вставка',
+      tabAnnotations: 'Аннотации',
+      tabExport: 'Экспорт',
+      toolLine: 'Отрезок',
+      toolCircle: 'Круг',
+      toolRect: 'Прямоугольник',
+      toolRectShort: 'Прямоуг.',
+      toolArc: 'Дуга',
+      toolMove: 'Переместить',
+      toolMoveShort: 'Двигать',
+      toolCopy: 'Копировать',
+      toolCopyShort: 'Копир.',
+      toolRotate: 'Повернуть',
+      toolRotateShort: 'Поворот',
+      toolScale: 'Масштаб',
+      toolTrim: 'Обрезать',
+      toolBlock: 'Блок',
+      toolImageShort: 'Изображ.',
+      toolSize: 'Размер',
+      toolText: 'Текст',
+      toolLeader: 'Выноска',
+      toolTable: 'Таблица',
+      toolPrint: 'Печать',
+      contextProperties: 'Свойства',
+      contextCopy: 'Копировать (Ctrl+C)',
+      contextDelete: 'Удалить',
+      contextRotate: 'Поворот',
+      contextScale: 'Масштаб',
+      contextTrim: 'Обрезать',
+      contextSize: 'Размер (X/Y/Z)',
+      contextInsertBlock: 'Вставить блок...',
+      contextImageInsert: 'Вставка изображения',
+      contextPdfInsert: 'Вставка PDF',
+      contextCreateTables: 'Создание таблиц',
+      contextLeaders: 'Выноски',
+      contextPaste: 'Вставить (Ctrl+V)',
+      modalAssignLayer: 'Назначить слой',
+      modalSelectedObjects: 'Выбрано объектов',
+      modalObjectsShort: 'объ.',
+      blockManager: 'Менеджер блоков',
+      createBlockFromSelection: 'Создать новый блок из выделенных объектов:',
+      blockNamePlaceholder: 'Имя блока...',
+      create: 'Создать',
+      blockLibrary: 'Библиотека блоков:',
+      noSavedBlocks: 'Нет сохраненных блоков',
+      elementsShort: 'эл.',
+      insert: 'Вставить',
+      objectType: 'Тип',
+      objectLayer: 'Слой',
+      analyzingRequest: 'Анализирую запрос...',
+      analyzing: 'Анализ...',
+      serverError: 'Ошибка сервера',
+      doneMessage: 'Готово',
+      responseReceived: 'Ответ получен',
+      aiDoneCanvas: (rooms, area, engine) => `Готово! ${rooms} комнат, ${area}м².${engine ? ` Движок: ${engine}` : ''} Чертёж отображён на канвасе.`,
+      aiDoneDxfLog: (url) => `AI: готово, DXF ${url}`,
+      errorPrefix: 'Ошибка',
+    },
+    en: {
+      welcomeLog: 'Welcome to AICAD. Enter a command or choose a tool.',
+      assistantGreeting: 'Hi! I am your AI assistant. Describe what you want to draw and I will help create the plan.',
+      tabs: {
+        home: 'HOME',
+        insert: 'INSERT',
+        annotate: 'ANNOTATE',
+        output: 'OUTPUT',
+      },
+      langRu: 'RUS',
+      langEn: 'ENG',
+      layers: 'Layers',
+      assignLayerToSelection: 'Assign layer to selected',
+      noLayers: 'No layers yet. Draw objects or use AI.',
+      leftSelect: 'Select [Esc]',
+      leftPan: 'Pan',
+      leftUndo: 'Undo [Ctrl+Z]',
+      leftRedo: 'Redo [Ctrl+Y]',
+      leftDelete: 'Delete [E]',
+      zoomIn: 'Zoom in',
+      zoomOut: 'Zoom out',
+      zoomExtents: 'Zoom extents',
+      selectionSize: 'Selection size',
+      objectsCount: 'Objects',
+      selectedSuffixSingle: 'object selected',
+      selectedSuffixPlural: 'objects selected',
+      layerText: 'Layer',
+      typeText: 'Type',
+      snap: 'Snap',
+      grid: 'Grid',
+      ortho: 'Ortho',
+      objectSnap: 'Object Snap',
+      assistantTitle: 'AI Assistant',
+      downloadDxf: 'Download DXF',
+      describeDrawing: 'Describe the drawing...',
+      generating: 'Generating...',
+      commandPlaceholder: 'Enter command (HELP for list)...',
+      fullscreen: 'Fullscreen',
+      tabDraw: 'Draw',
+      tabEdit: 'Edit',
+      tabInsert: 'Insert',
+      tabAnnotations: 'Annotations',
+      tabExport: 'Export',
+      toolLine: 'Line',
+      toolCircle: 'Circle',
+      toolRect: 'Rectangle',
+      toolRectShort: 'Rect',
+      toolArc: 'Arc',
+      toolMove: 'Move',
+      toolMoveShort: 'Move',
+      toolCopy: 'Copy',
+      toolCopyShort: 'Copy',
+      toolRotate: 'Rotate',
+      toolRotateShort: 'Rotate',
+      toolScale: 'Scale',
+      toolTrim: 'Trim',
+      toolBlock: 'Block',
+      toolImageShort: 'Image',
+      toolSize: 'Dimension',
+      toolText: 'Text',
+      toolLeader: 'Leader',
+      toolTable: 'Table',
+      toolPrint: 'Print',
+      contextProperties: 'Properties',
+      contextCopy: 'Copy (Ctrl+C)',
+      contextDelete: 'Delete',
+      contextRotate: 'Rotate',
+      contextScale: 'Scale',
+      contextTrim: 'Trim',
+      contextSize: 'Size (X/Y/Z)',
+      contextInsertBlock: 'Insert block...',
+      contextImageInsert: 'Insert image',
+      contextPdfInsert: 'Insert PDF',
+      contextCreateTables: 'Create tables',
+      contextLeaders: 'Leaders',
+      contextPaste: 'Paste (Ctrl+V)',
+      modalAssignLayer: 'Assign layer',
+      modalSelectedObjects: 'Selected objects',
+      modalObjectsShort: 'obj.',
+      blockManager: 'Block manager',
+      createBlockFromSelection: 'Create a new block from selected objects:',
+      blockNamePlaceholder: 'Block name...',
+      create: 'Create',
+      blockLibrary: 'Block library:',
+      noSavedBlocks: 'No saved blocks',
+      elementsShort: 'el.',
+      insert: 'Insert',
+      objectType: 'Type',
+      objectLayer: 'Layer',
+      analyzingRequest: 'Analyzing request...',
+      analyzing: 'Analyzing...',
+      serverError: 'Server error',
+      doneMessage: 'Done',
+      responseReceived: 'Response received',
+      aiDoneCanvas: (rooms, area, engine) => `Done! ${rooms} rooms, ${area}m².${engine ? ` Engine: ${engine}` : ''} Drawing is rendered on canvas.`,
+      aiDoneDxfLog: (url) => `AI: done, DXF ${url}`,
+      errorPrefix: 'Error',
+    },
+  };
+  const t = i18n[language];
+  const layerLabel = (name) => (language === 'en' ? (LAYER_NAME_MAP[name] || name) : name);
+  const tabDefs = [
+    { key: 'ГЛАВНАЯ', label: t.tabs.home },
+    { key: 'ВСТАВКА', label: t.tabs.insert },
+    { key: 'АННОТАЦИИ', label: t.tabs.annotate },
+    { key: 'ВЫВОД', label: t.tabs.output },
+  ];
+
+  useEffect(() => {
+    setAppState((prev) => {
+      const next = { ...prev };
+      const knownWelcome = [
+        i18n.ru.welcomeLog,
+        i18n.en.welcomeLog,
+      ];
+      if (next.commandLog.length && knownWelcome.includes(next.commandLog[0])) {
+        next.commandLog = [t.welcomeLog, ...next.commandLog.slice(1)];
+      }
+      if (next.chatMessages.length && next.chatMessages[0].role === 'assistant') {
+        const knownGreeting = [
+          i18n.ru.assistantGreeting,
+          i18n.en.assistantGreeting,
+        ];
+        if (knownGreeting.includes(next.chatMessages[0].text)) {
+          next.chatMessages = [
+            { ...next.chatMessages[0], text: t.assistantGreeting },
+            ...next.chatMessages.slice(1),
+          ];
+        }
+      }
+      return next;
+    });
+  }, [language]);
 
   const pushHistory = (newElements) => {
     const newHist = history.slice(0, historyIndex + 1);
@@ -1391,8 +1636,8 @@ export default function App() {
       setLoading(true);
       setDownloadUrl('');
       addMessage('user', prompt);
-      addMessage('assistant', 'Анализирую запрос...');
-      updateProgress(10, 'Анализ...');
+      addMessage('assistant', t.analyzingRequest);
+      updateProgress(10, t.analyzing);
       logCmd("AI_REQUEST");
 
       const response = await fetch("http://127.0.0.1:8000/api/chat", {
@@ -1405,7 +1650,7 @@ export default function App() {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || "Ошибка сервера");
+        throw new Error(error.detail || t.serverError);
       }
 
       const data = await response.json();
@@ -1415,23 +1660,21 @@ export default function App() {
         clearCanvas();
         handleBackendResponse(data);
         syncLayersAfterGeneration(data);
-        const engineLabel = data.engine_used ? ` Движок: ${data.engine_used}` : '';
-        updateLastAiMessage(
-          `Готово! ${data.rooms_count} комнат, ${data.total_area}м².${engineLabel} Чертёж отображён на канвасе.`
-        );
+        updateLastAiMessage(t.aiDoneCanvas(data.rooms_count, data.total_area, data.engine_used));
         if (data.download_url) {
           setDownloadUrl(`http://127.0.0.1:8000${data.download_url}`);
-          logCmd(`AI: готово, DXF ${data.download_url}`);
+          logCmd(t.aiDoneDxfLog(data.download_url));
         }
       } else {
-        updateLastAiMessage(data.message || 'Готово!');
-        logCmd(`AI: ${data.message || 'Ответ получен'}`);
+        const fallbackText = t.doneMessage;
+        updateLastAiMessage(language === 'en' ? fallbackText : (data.message || fallbackText));
+        logCmd(`AI: ${language === 'en' ? t.responseReceived : (data.message || t.responseReceived)}`);
       }
 
-      setChatProgress({ value: 100, message: 'Готово' });
+      setChatProgress({ value: 100, message: t.doneMessage });
       setTimeout(() => setChatProgress({ value: 0, message: '' }), 2000);
     } catch (error) {
-      updateLastAiMessage(`Ошибка: ${error.message}`);
+      updateLastAiMessage(`${t.errorPrefix}: ${error.message}`);
       logCmd(`AI_ERROR: ${error.message}`);
       setChatProgress({ value: 0, message: '' });
     } finally {
@@ -1869,45 +2112,77 @@ export default function App() {
           <i className="fa-brands fa-codepen" style={{ color: '#4a9eff' }}></i>
           <span style={{ fontWeight: 600, letterSpacing: '0.5px', color: '#c0d0e0' }}>AICAD — Drawing1.dwg</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, color: '#6070A0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: '#6070A0' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button
+              onClick={() => setLanguage('ru')}
+              style={{
+                background: language === 'ru' ? '#243554' : 'transparent',
+                color: language === 'ru' ? '#d8e4ff' : '#7c8db8',
+                border: '1px solid #2b3a56',
+                borderRadius: 4,
+                cursor: 'pointer',
+                padding: '2px 8px',
+                fontSize: 11,
+                fontWeight: 600,
+              }}
+            >
+              {t.langRu}
+            </button>
+            <button
+              onClick={() => setLanguage('en')}
+              style={{
+                background: language === 'en' ? '#243554' : 'transparent',
+                color: language === 'en' ? '#d8e4ff' : '#7c8db8',
+                border: '1px solid #2b3a56',
+                borderRadius: 4,
+                cursor: 'pointer',
+                padding: '2px 8px',
+                fontSize: 11,
+                fontWeight: 600,
+              }}
+            >
+              {t.langEn}
+            </button>
+          </div>
           <i className="fa-solid fa-minus" style={{ cursor: 'pointer' }} onMouseEnter={e => e.target.style.color = '#fff'} onMouseLeave={e => e.target.style.color = '#6070A0'}></i>
           <i className="fa-solid fa-expand" style={{ cursor: 'pointer' }} onMouseEnter={e => e.target.style.color = '#fff'} onMouseLeave={e => e.target.style.color = '#6070A0'}
             onClick={() => {
               if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
               else document.exitFullscreen();
-            }} title="Во весь экран"></i>
+            }} title={t.fullscreen}></i>
           <i className="fa-solid fa-xmark" style={{ cursor: 'pointer', fontSize: 14 }} onMouseEnter={e => e.target.style.color = '#ff4a4a'} onMouseLeave={e => e.target.style.color = '#6070A0'}></i>
         </div>
       </div>
 
       {/* ═══ TAB BAR ═══ */}
       <div style={{ height: 34, background: '#0e1220', display: 'flex', alignItems: 'flex-end', padding: '0 8px', flexShrink: 0, borderBottom: '1px solid #1e2a3a', gap: 2 }}>
-        {['ГЛАВНАЯ', 'ВСТАВКА', 'АННОТАЦИИ', 'ВЫВОД'].map((tab) => (
+        {tabDefs.map((tab) => (
           <div
-            key={tab}
-            onClick={() => setActiveTab(tab)}
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
             style={{
               padding: '6px 20px',
               cursor: 'pointer',
               borderRadius: '6px 6px 0 0',
               fontSize: 11,
-              fontWeight: activeTab === tab ? 700 : 500,
+              fontWeight: activeTab === tab.key ? 700 : 500,
               letterSpacing: '0.8px',
-              color: activeTab === tab ? '#ffffff' : '#6878A0',
-              background: activeTab === tab ? '#1a2235' : 'transparent',
-              borderTop: activeTab === tab ? '2px solid #4a9eff' : '2px solid transparent',
-              borderLeft: activeTab === tab ? '1px solid #1e2a3a' : '1px solid transparent',
-              borderRight: activeTab === tab ? '1px solid #1e2a3a' : '1px solid transparent',
-              borderBottom: activeTab === tab ? '1px solid #1a2235' : 'none',
-              marginBottom: activeTab === tab ? -1 : 0,
+              color: activeTab === tab.key ? '#ffffff' : '#6878A0',
+              background: activeTab === tab.key ? '#1a2235' : 'transparent',
+              borderTop: activeTab === tab.key ? '2px solid #4a9eff' : '2px solid transparent',
+              borderLeft: activeTab === tab.key ? '1px solid #1e2a3a' : '1px solid transparent',
+              borderRight: activeTab === tab.key ? '1px solid #1e2a3a' : '1px solid transparent',
+              borderBottom: activeTab === tab.key ? '1px solid #1a2235' : 'none',
+              marginBottom: activeTab === tab.key ? -1 : 0,
               transition: 'all 0.15s',
               position: 'relative',
-              zIndex: activeTab === tab ? 2 : 1,
+              zIndex: activeTab === tab.key ? 2 : 1,
             }}
-            onMouseEnter={e => { if (activeTab !== tab) e.currentTarget.style.color = '#a0b0d0'; }}
-            onMouseLeave={e => { if (activeTab !== tab) e.currentTarget.style.color = '#6878A0'; }}
+            onMouseEnter={e => { if (activeTab !== tab.key) e.currentTarget.style.color = '#a0b0d0'; }}
+            onMouseLeave={e => { if (activeTab !== tab.key) e.currentTarget.style.color = '#6878A0'; }}
           >
-            {tab}
+            {tab.label}
           </div>
         ))}
       </div>
@@ -1920,24 +2195,24 @@ export default function App() {
             {/* Рисование */}
             <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderRight: '1px solid #1e2a3a', padding: '4px 8px', minWidth: 260 }}>
               <div style={{ display: 'flex', gap: 2, paddingTop: 2, justifyContent: 'center' }}>
-                <div className={`tool-btn ${appState.activeTool === 'line' ? 'active' : ''}`} onClick={() => setTool('line', 'LINE')} title="Отрезок [L]"><i className="fa-solid fa-minus"></i><span>Отрезок</span></div>
-                <div className={`tool-btn ${appState.activeTool === 'circle' ? 'active' : ''}`} onClick={() => setTool('circle', 'CIRCLE')} title="Круг [C]"><i className="fa-regular fa-circle"></i><span>Круг</span></div>
-                <div className={`tool-btn ${appState.activeTool === 'rect' ? 'active' : ''}`} onClick={() => setTool('rect', 'RECT')} title="Прямоугольник [R]"><i className="fa-regular fa-square"></i><span>Прямоуг.</span></div>
-                <div className={`tool-btn ${appState.activeTool === 'arc' ? 'active' : ''}`} onClick={() => setTool('arc', 'ARC')} title="Дуга [A]"><i className="fa-solid fa-bezier-curve"></i><span>Дуга</span></div>
+                <div className={`tool-btn ${appState.activeTool === 'line' ? 'active' : ''}`} onClick={() => setTool('line', 'LINE')} title={`${t.toolLine} [L]`}><i className="fa-solid fa-minus"></i><span>{t.toolLine}</span></div>
+                <div className={`tool-btn ${appState.activeTool === 'circle' ? 'active' : ''}`} onClick={() => setTool('circle', 'CIRCLE')} title={`${t.toolCircle} [C]`}><i className="fa-regular fa-circle"></i><span>{t.toolCircle}</span></div>
+                <div className={`tool-btn ${appState.activeTool === 'rect' ? 'active' : ''}`} onClick={() => setTool('rect', 'RECT')} title={`${t.toolRect} [R]`}><i className="fa-regular fa-square"></i><span>{t.toolRectShort}</span></div>
+                <div className={`tool-btn ${appState.activeTool === 'arc' ? 'active' : ''}`} onClick={() => setTool('arc', 'ARC')} title={`${t.toolArc} [A]`}><i className="fa-solid fa-bezier-curve"></i><span>{t.toolArc}</span></div>
               </div>
-              <div style={{ textAlign: 'center', fontSize: 10, color: '#5568A0', paddingBottom: 2, fontWeight: 500 }}>Рисование</div>
+              <div style={{ textAlign: 'center', fontSize: 10, color: '#5568A0', paddingBottom: 2, fontWeight: 500 }}>{t.tabDraw}</div>
             </div>
 
             {/* Редактирование */}
             <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderRight: '1px solid #1e2a3a', padding: '4px 8px', minWidth: 310 }}>
               <div style={{ display: 'flex', gap: 2, paddingTop: 2, justifyContent: 'center' }}>
-                <div className={`tool-btn ${appState.activeTool === 'move' ? 'active' : ''}`} onClick={() => setTool('move', 'MOVE')} title="Переместить [M]"><i className="fa-solid fa-arrows-up-down-left-right"></i><span>Двигать</span></div>
-                <div className={`tool-btn ${appState.activeTool === 'copy' ? 'active' : ''}`} onClick={() => setTool('copy', 'COPY')} title="Копировать"><i className="fa-regular fa-copy"></i><span>Копир.</span></div>
-                <div className={`tool-btn ${appState.activeTool === 'rotate' ? 'active' : ''}`} onClick={() => setTool('rotate', 'ROTATE')} title="Повернуть"><i className="fa-solid fa-rotate"></i><span>Поворот</span></div>
-                <div className={`tool-btn ${appState.activeTool === 'scale' ? 'active' : ''}`} onClick={() => setTool('scale', 'SCALE')} title="Масштаб"><i className="fa-solid fa-maximize"></i><span>Масштаб</span></div>
-                <div className={`tool-btn ${appState.activeTool === 'trim' ? 'active' : ''}`} onClick={() => setTool('trim', 'TRIM')} title="Обрезать"><i className="fa-solid fa-scissors"></i><span>Обрезать</span></div>
+                <div className={`tool-btn ${appState.activeTool === 'move' ? 'active' : ''}`} onClick={() => setTool('move', 'MOVE')} title={`${t.toolMove} [M]`}><i className="fa-solid fa-arrows-up-down-left-right"></i><span>{t.toolMoveShort}</span></div>
+                <div className={`tool-btn ${appState.activeTool === 'copy' ? 'active' : ''}`} onClick={() => setTool('copy', 'COPY')} title={t.toolCopy}><i className="fa-regular fa-copy"></i><span>{t.toolCopyShort}</span></div>
+                <div className={`tool-btn ${appState.activeTool === 'rotate' ? 'active' : ''}`} onClick={() => setTool('rotate', 'ROTATE')} title={t.toolRotate}><i className="fa-solid fa-rotate"></i><span>{t.toolRotateShort}</span></div>
+                <div className={`tool-btn ${appState.activeTool === 'scale' ? 'active' : ''}`} onClick={() => setTool('scale', 'SCALE')} title={t.toolScale}><i className="fa-solid fa-maximize"></i><span>{t.toolScale}</span></div>
+                <div className={`tool-btn ${appState.activeTool === 'trim' ? 'active' : ''}`} onClick={() => setTool('trim', 'TRIM')} title={t.toolTrim}><i className="fa-solid fa-scissors"></i><span>{t.toolTrim}</span></div>
               </div>
-              <div style={{ textAlign: 'center', fontSize: 10, color: '#5568A0', paddingBottom: 2, fontWeight: 500 }}>Редактирование</div>
+              <div style={{ textAlign: 'center', fontSize: 10, color: '#5568A0', paddingBottom: 2, fontWeight: 500 }}>{t.tabEdit}</div>
             </div>
           </>
         )}
@@ -1945,33 +2220,33 @@ export default function App() {
         {activeTab === 'ВСТАВКА' && (
           <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderRight: '1px solid #1e2a3a', padding: '4px 8px', minWidth: 260 }}>
             <div style={{ display: 'flex', gap: 2, paddingTop: 2, justifyContent: 'center' }}>
-              <div className="tool-btn" onClick={() => executeAction('block', 'INSERT')}><i className="fa-solid fa-shapes"></i><span>Блок</span></div>
-              <div className="tool-btn" onClick={() => executeAction('image', 'IMAGE')}><i className="fa-regular fa-image"></i><span>Изображ.</span></div>
+              <div className="tool-btn" onClick={() => executeAction('block', 'INSERT')}><i className="fa-solid fa-shapes"></i><span>{t.toolBlock}</span></div>
+              <div className="tool-btn" onClick={() => executeAction('image', 'IMAGE')}><i className="fa-regular fa-image"></i><span>{t.toolImageShort}</span></div>
               <div className="tool-btn" onClick={() => executeAction('pdfattach', 'PDFATTACH')}><i className="fa-regular fa-file-pdf"></i><span>PDF</span></div>
             </div>
-            <div style={{ textAlign: 'center', fontSize: 10, color: '#5568A0', paddingBottom: 2, fontWeight: 500 }}>Вставка</div>
+            <div style={{ textAlign: 'center', fontSize: 10, color: '#5568A0', paddingBottom: 2, fontWeight: 500 }}>{t.tabInsert}</div>
           </div>
         )}
 
         {activeTab === 'АННОТАЦИИ' && (
           <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderRight: '1px solid #1e2a3a', padding: '4px 8px', minWidth: 280 }}>
             <div style={{ display: 'flex', gap: 2, paddingTop: 2, justifyContent: 'center' }}>
-              <div className={`tool-btn ${appState.activeTool === 'dim' ? 'active' : ''}`} onClick={() => setTool('dim', 'DIMALIGNED')}><i className="fa-solid fa-arrows-left-right-to-line"></i><span>Размер</span></div>
-              <div className={`tool-btn ${appState.activeTool === 'text' ? 'active' : ''}`} onClick={() => setTool('text', 'MTEXT')}><i className="fa-solid fa-font"></i><span>Текст</span></div>
-              <div className="tool-btn" onClick={() => executeAction('leader', 'MLEADER')}><i className="fa-solid fa-arrow-right"></i><span>Выноска</span></div>
-              <div className="tool-btn" onClick={() => executeAction('table', 'TABLE')}><i className="fa-solid fa-table"></i><span>Таблица</span></div>
+              <div className={`tool-btn ${appState.activeTool === 'dim' ? 'active' : ''}`} onClick={() => setTool('dim', 'DIMALIGNED')}><i className="fa-solid fa-arrows-left-right-to-line"></i><span>{t.toolSize}</span></div>
+              <div className={`tool-btn ${appState.activeTool === 'text' ? 'active' : ''}`} onClick={() => setTool('text', 'MTEXT')}><i className="fa-solid fa-font"></i><span>{t.toolText}</span></div>
+              <div className="tool-btn" onClick={() => executeAction('leader', 'MLEADER')}><i className="fa-solid fa-arrow-right"></i><span>{t.toolLeader}</span></div>
+              <div className="tool-btn" onClick={() => executeAction('table', 'TABLE')}><i className="fa-solid fa-table"></i><span>{t.toolTable}</span></div>
             </div>
-            <div style={{ textAlign: 'center', fontSize: 10, color: '#5568A0', paddingBottom: 2, fontWeight: 500 }}>Аннотации</div>
+            <div style={{ textAlign: 'center', fontSize: 10, color: '#5568A0', paddingBottom: 2, fontWeight: 500 }}>{t.tabAnnotations}</div>
           </div>
         )}
 
         {activeTab === 'ВЫВОД' && (
           <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderRight: '1px solid #1e2a3a', padding: '4px 8px', minWidth: 220 }}>
             <div style={{ display: 'flex', gap: 2, paddingTop: 2, justifyContent: 'center' }}>
-              <div className="tool-btn" onClick={() => executeAction('print', 'PLOT')}><i className="fa-solid fa-print"></i><span>Печать</span></div>
+              <div className="tool-btn" onClick={() => executeAction('print', 'PLOT')}><i className="fa-solid fa-print"></i><span>{t.toolPrint}</span></div>
               <div className="tool-btn" onClick={() => executeAction('pdf', 'EXPORTPDF')}><i className="fa-solid fa-file-export"></i><span>PDF</span></div>
             </div>
-            <div style={{ textAlign: 'center', fontSize: 10, color: '#5568A0', paddingBottom: 2, fontWeight: 500 }}>Экспорт</div>
+            <div style={{ textAlign: 'center', fontSize: 10, color: '#5568A0', paddingBottom: 2, fontWeight: 500 }}>{t.tabExport}</div>
           </div>
         )}
 
@@ -1981,9 +2256,9 @@ export default function App() {
         <div style={{ display: 'flex', alignItems: 'center', padding: '0 16px', borderLeft: '1px solid #1e2a3a', gap: 12, minWidth: 350, overflowX: 'auto' }} className="no-scroll">
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%', justifyContent: 'center', width: '100%' }}>
                <div style={{ fontSize: 10, color: '#5568A0', fontWeight: 700, textTransform: 'uppercase', marginBottom: 4, display: 'flex', justifyContent: 'space-between', width: '100%' }}>
-                 Слои
+                 {t.layers}
                  {appState.selectedElements.length > 0 && (
-                   <span style={{ color: '#4a9eff', cursor: 'pointer', textTransform: 'none' }} onClick={() => setIsLayerModalOpen(true)}>Назначить слой выделенным ({appState.selectedElements.length})</span>
+                  <span style={{ color: '#4a9eff', cursor: 'pointer', textTransform: 'none' }} onClick={() => setIsLayerModalOpen(true)}>{t.assignLayerToSelection} ({appState.selectedElements.length})</span>
                  )}
                </div>
                <div style={{ display: 'flex', gap: 6, minWidth: 'min-content' }}>
@@ -2013,12 +2288,12 @@ export default function App() {
                           style={{ color: layer.locked ? '#e8a040' : '#5568A0', fontSize: 11, marginRight: 6 }}
                           onClick={(e) => { e.stopPropagation(); toggleLayerAttr(layer.name, 'locked'); }}
                         ></i>
-                        {layer.name} <span style={{ opacity: 0.6, fontSize: 10, marginLeft: 6 }}>({appState.elements.filter(el => el.layer === layer.name).length})</span>
+                        {layerLabel(layer.name)} <span style={{ opacity: 0.6, fontSize: 10, marginLeft: 6 }}>({appState.elements.filter(el => el.layer === layer.name).length})</span>
                       </div>
                     );
                  }) : (
                     <div style={{ fontSize: 12, color: '#4a5a7a', padding: '4px 8px', background: '#1a2030', borderRadius: 4, border: '1px solid #2e3e54' }}>
-                       Нет слоев. Нарисуйте объекты или используйте AI.
+                       {t.noLayers}
                     </div>
                  )}
                </div>
@@ -2031,13 +2306,13 @@ export default function App() {
 
         {/* Left Vertical Toolbar */}
         <div style={{ width: 42, background: '#111120', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '8px 0', gap: 4, borderRight: '1px solid #1e2a3a', flexShrink: 0, zIndex: 5 }}>
-          <div className={`left-btn ${appState.activeTool === 'select' ? 'active' : ''}`} title="Выбор [Esc]" onClick={() => setTool('select')}><i className="fa-solid fa-arrow-pointer"></i></div>
-          <div className={`left-btn ${appState.activeTool === 'pan' ? 'active' : ''}`} title="Панорама" onClick={() => setTool('pan')}><i className="fa-solid fa-hand"></i></div>
+          <div className={`left-btn ${appState.activeTool === 'select' ? 'active' : ''}`} title={t.leftSelect} onClick={() => setTool('select')}><i className="fa-solid fa-arrow-pointer"></i></div>
+          <div className={`left-btn ${appState.activeTool === 'pan' ? 'active' : ''}`} title={t.leftPan} onClick={() => setTool('pan')}><i className="fa-solid fa-hand"></i></div>
           <div style={{ width: 22, height: 1, background: '#1e2a3a', margin: '4px 0' }}></div>
-          <div className="left-btn" title="Отменить [Ctrl+Z]" onClick={undo}><i className="fa-solid fa-rotate-left"></i></div>
-          <div className="left-btn" title="Повторить [Ctrl+Y]" onClick={redo}><i className="fa-solid fa-rotate-right"></i></div>
+          <div className="left-btn" title={t.leftUndo} onClick={undo}><i className="fa-solid fa-rotate-left"></i></div>
+          <div className="left-btn" title={t.leftRedo} onClick={redo}><i className="fa-solid fa-rotate-right"></i></div>
           <div style={{ width: 22, height: 1, background: '#1e2a3a', margin: '4px 0' }}></div>
-          <div className={`left-btn ${appState.activeTool === 'erase' ? 'active' : ''}`} title="Удалить [E]" onClick={() => setTool('erase', 'ERASE')}><i className="fa-solid fa-eraser"></i></div>
+          <div className={`left-btn ${appState.activeTool === 'erase' ? 'active' : ''}`} title={t.leftDelete} onClick={() => setTool('erase', 'ERASE')}><i className="fa-solid fa-eraser"></i></div>
         </div>
 
         {/* Canvas */}
@@ -2085,21 +2360,21 @@ export default function App() {
               onClick={(e) => { e.stopPropagation(); handleZoomButton(true); }}
               onMouseEnter={e => { e.currentTarget.style.background = '#2a3a50'; e.currentTarget.style.borderColor = '#4a9eff'; }}
               onMouseLeave={e => { e.currentTarget.style.background = '#1a2030'; e.currentTarget.style.borderColor = '#2e3e54'; }}
-              title="Увеличить"
+              title={t.zoomIn}
             >+</button>
             <button
               style={{ width: 36, height: 36, background: '#1a2030', border: '1px solid #2e3e54', borderRadius: 8, color: '#c0d0e0', cursor: 'pointer', fontSize: 18, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.4)' }}
               onClick={(e) => { e.stopPropagation(); handleZoomButton(false); }}
               onMouseEnter={e => { e.currentTarget.style.background = '#2a3a50'; e.currentTarget.style.borderColor = '#4a9eff'; }}
               onMouseLeave={e => { e.currentTarget.style.background = '#1a2030'; e.currentTarget.style.borderColor = '#2e3e54'; }}
-              title="Уменьшить"
+              title={t.zoomOut}
             >−</button>
             <button
               style={{ width: 36, height: 36, background: '#1a2030', border: '1px solid #2e3e54', borderRadius: 8, color: '#c0d0e0', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.4)' }}
               onClick={(e) => { e.stopPropagation(); zoomExtents(); }}
               onMouseEnter={e => { e.currentTarget.style.background = '#2a3a50'; e.currentTarget.style.borderColor = '#4a9eff'; }}
               onMouseLeave={e => { e.currentTarget.style.background = '#1a2030'; e.currentTarget.style.borderColor = '#2e3e54'; }}
-              title="Показать всё (Zoom Extents)"
+              title={t.zoomExtents}
             ><i className="fa-solid fa-compress"></i></button>
           </div>
 
@@ -2124,7 +2399,7 @@ export default function App() {
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <span style={{ fontSize: 12, color: '#8fb8ff', fontWeight: 700 }}>Размер выделения</span>
+                <span style={{ fontSize: 12, color: '#8fb8ff', fontWeight: 700 }}>{t.selectionSize}</span>
                 <i
                   className="fa-solid fa-xmark"
                   style={{ cursor: 'pointer', color: '#6f84ad' }}
@@ -2135,7 +2410,7 @@ export default function App() {
                 X: <span style={{ color: '#4a9eff' }}>{measurementInfo.x}</span><br />
                 Y: <span style={{ color: '#4a9eff' }}>{measurementInfo.y}</span><br />
                 Z: <span style={{ color: '#4a9eff' }}>{measurementInfo.z}</span><br />
-                Объектов: <span style={{ color: '#8fb8ff' }}>{measurementInfo.count}</span>
+                {t.objectsCount}: <span style={{ color: '#8fb8ff' }}>{measurementInfo.count}</span>
               </div>
             </div>
           )}
@@ -2151,7 +2426,7 @@ export default function App() {
             <div style={{ height: 40, display: 'flex', alignItems: 'center', padding: '0 16px', borderBottom: '1px solid #1e2a3a', background: '#121226', gap: 10 }}>
               <i className="fa-solid fa-robot" style={{ color: '#4a9eff', fontSize: 15 }}></i>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#e0e8f0', lineHeight: 1.2 }}>AI Ассистент</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#e0e8f0', lineHeight: 1.2 }}>{t.assistantTitle}</div>
                 <div style={{ fontSize: 10, color: '#4ade80', display: 'flex', alignItems: 'center', gap: 4, lineHeight: 1.2, marginTop: 1 }}>
                   <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#4ade80', display: 'inline-block' }}></span>Online
                 </div>
@@ -2181,7 +2456,7 @@ export default function App() {
               {chatProgress.value > 0 && chatProgress.value < 100 && (
                 <div style={{ marginBottom: 8 }}>
                   <div style={{ fontSize: 11, color: '#8ba0c2', marginBottom: 4 }}>
-                    {chatProgress.message || 'Генерация...'} ({chatProgress.value}%)
+                    {chatProgress.message || t.generating} ({chatProgress.value}%)
                   </div>
                   <div style={{ height: 6, borderRadius: 99, background: '#121b2e', overflow: 'hidden' }}>
                     <div style={{ width: `${chatProgress.value}%`, height: '100%', background: 'linear-gradient(90deg, #3b82f6, #4a9eff)' }} />
@@ -2204,7 +2479,7 @@ export default function App() {
                       fontSize: "12px"
                     }}
                   >
-                    Скачать DXF
+                    {t.downloadDxf}
                   </a>
                 </div>
               )}
@@ -2215,7 +2490,7 @@ export default function App() {
                 <textarea
                   style={{ background: 'transparent', border: 'none', outline: 'none', width: '100%', padding: '10px 12px', color: '#d0d8e8', resize: 'none', fontSize: 13, fontFamily: "'Inter', sans-serif", lineHeight: 1.5 }}
                   rows="2"
-                  placeholder="Опишите чертёж..."
+                  placeholder={t.describeDrawing}
                   value={chatInput}
                   disabled={loading}
                   onChange={e => setChatInput(e.target.value)}
@@ -2252,7 +2527,7 @@ export default function App() {
               style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: '#d0d8e8', fontFamily: "'JetBrains Mono', 'Consolas', monospace", fontSize: 12, caretColor: '#4a9eff' }}
               type="text"
               autoComplete="off"
-              placeholder="Введите команду (HELP для списка)..."
+              placeholder={t.commandPlaceholder}
               value={cmdInput}
               onChange={e => setCmdInput(e.target.value)}
               onKeyDown={(e) => {
@@ -2276,18 +2551,18 @@ export default function App() {
               const typeInfo = selEl ? selEl.type : '';
               return (
                 <span style={{ color: '#4a9eff', fontWeight: 600 }}>
-                  {appState.selectedElements.length} объект{appState.selectedElements.length > 1 ? 'ов' : ''} выбран{appState.selectedElements.length === 1 ? '' : 'о'}
-                  {selEl && <> | Слой: {layerInfo} | Тип: {typeInfo}</>}
+                  {appState.selectedElements.length} {appState.selectedElements.length > 1 ? t.selectedSuffixPlural : t.selectedSuffixSingle}
+                  {selEl && <> | {t.layerText}: {layerLabel(layerInfo)} | {t.typeText}: {typeInfo}</>}
                 </span>
               );
             })()}
           </div>
           <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
             {[
-              { label: 'Привязка', flag: appState.snapEnabled, attr: 'snapEnabled' },
-              { label: 'Сетка', flag: appState.gridEnabled, attr: 'gridEnabled' },
-              { label: 'Орто', flag: appState.orthoEnabled, attr: 'orthoEnabled' },
-              { label: 'Объектная', flag: appState.osnapEnabled, attr: 'osnapEnabled' },
+              { label: t.snap, flag: appState.snapEnabled, attr: 'snapEnabled' },
+              { label: t.grid, flag: appState.gridEnabled, attr: 'gridEnabled' },
+              { label: t.ortho, flag: appState.orthoEnabled, attr: 'orthoEnabled' },
+              { label: t.objectSnap, flag: appState.osnapEnabled, attr: 'osnapEnabled' },
             ].map(item => (
               <div
                 key={item.label}
@@ -2329,15 +2604,15 @@ export default function App() {
               <button className="context-menu-item" onClick={() => {
                 const el = appState.elements.find(e => e.id === contextMenu.targetId);
                 if (el) {
-                  const info = `Тип: ${el.type}\nСлой: ${el.layer}\nID: ${el.id}`;
+                  const info = `${t.objectType}: ${el.type}\n${t.objectLayer}: ${layerLabel(el.layer)}\nID: ${el.id}`;
                   alert(info);
                 }
                 setContextMenu(null);
               }}>
-                <i className="fa-solid fa-circle-info"></i><span>Свойства</span>
+                <i className="fa-solid fa-circle-info"></i><span>{t.contextProperties}</span>
               </button>
               <button className="context-menu-item" onClick={() => { copySelectionToClipboard(false); setContextMenu(null); }}>
-                <i className="fa-regular fa-copy"></i><span>Копировать (Ctrl+C)</span>
+                <i className="fa-regular fa-copy"></i><span>{t.contextCopy}</span>
               </button>
               <button className="context-menu-item" onClick={() => {
                 const idSet = new Set(appState.selectedElements);
@@ -2348,20 +2623,20 @@ export default function App() {
                 logCmd(`Удалено ${idSet.size} объектов`);
                 setContextMenu(null);
               }}>
-                <i className="fa-solid fa-trash"></i><span>Удалить</span>
+                <i className="fa-solid fa-trash"></i><span>{t.contextDelete}</span>
               </button>
               <div className="context-menu-separator"></div>
               <button className="context-menu-item" onClick={() => { setTool('rotate', 'ROTATE'); setContextMenu(null); }}>
-                <i className="fa-solid fa-rotate"></i><span>Поворот</span>
+                <i className="fa-solid fa-rotate"></i><span>{t.contextRotate}</span>
               </button>
               <button className="context-menu-item" onClick={() => { setTool('scale', 'SCALE'); setContextMenu(null); }}>
-                <i className="fa-solid fa-maximize"></i><span>Масштаб</span>
+                <i className="fa-solid fa-maximize"></i><span>{t.contextScale}</span>
               </button>
               <button className="context-menu-item" onClick={() => { setTool('trim', 'TRIM'); setContextMenu(null); }}>
-                <i className="fa-solid fa-scissors"></i><span>Обрезать</span>
+                <i className="fa-solid fa-scissors"></i><span>{t.contextTrim}</span>
               </button>
               <button className="context-menu-item" onClick={() => { showSelectionDimensions(); setContextMenu(null); }}>
-                <i className="fa-solid fa-ruler-combined"></i><span>Размер (X/Y/Z)</span>
+                <i className="fa-solid fa-ruler-combined"></i><span>{t.contextSize}</span>
               </button>
               <div className="context-menu-separator"></div>
               {/* Move to Layer submenu */}
@@ -2377,33 +2652,33 @@ export default function App() {
                   setContextMenu(null);
                 }}>
                   <i className="fa-solid fa-layer-group" style={{ fontSize: 10 }}></i>
-                  <span style={{ fontSize: 12 }}>→ {layerName}</span>
+                  <span style={{ fontSize: 12 }}>→ {layerLabel(layerName)}</span>
                 </button>
               ))}
             </>
           ) : (
             <>
               <button className="context-menu-item" onClick={() => { setIsBlockModalOpen(true); setContextMenu(null); }}>
-                <i className="fa-solid fa-shapes"></i><span>Вставить блок...</span>
+                <i className="fa-solid fa-shapes"></i><span>{t.contextInsertBlock}</span>
               </button>
               <div className="context-menu-separator"></div>
               <button className="context-menu-item" onClick={() => { executeAction('image', 'IMAGE'); setContextMenu(null); }}>
-                <i className="fa-regular fa-image"></i><span>Вставка изображения</span>
+                <i className="fa-regular fa-image"></i><span>{t.contextImageInsert}</span>
               </button>
               <button className="context-menu-item" onClick={() => { executeAction('pdfattach', 'PDFATTACH'); setContextMenu(null); }}>
-                <i className="fa-regular fa-file-pdf"></i><span>Вставка PDF</span>
+                <i className="fa-regular fa-file-pdf"></i><span>{t.contextPdfInsert}</span>
               </button>
               <button className="context-menu-item" onClick={() => { executeAction('table', 'TABLE'); setContextMenu(null); }}>
-                <i className="fa-solid fa-table"></i><span>Создание таблиц</span>
+                <i className="fa-solid fa-table"></i><span>{t.contextCreateTables}</span>
               </button>
               <button className="context-menu-item" onClick={() => { executeAction('leader', 'MLEADER'); setContextMenu(null); }}>
-                <i className="fa-solid fa-arrow-right"></i><span>Выноски</span>
+                <i className="fa-solid fa-arrow-right"></i><span>{t.contextLeaders}</span>
               </button>
               <button className="context-menu-item" onClick={() => { setTool('text', 'MTEXT'); setContextMenu(null); }}>
-                <i className="fa-solid fa-font"></i><span>Текст</span>
+                <i className="fa-solid fa-font"></i><span>{t.toolText}</span>
               </button>
               <button className="context-menu-item" onClick={() => { pasteClipboard(lastMouseCadRef.current); setContextMenu(null); }}>
-                <i className="fa-solid fa-paste"></i><span>Вставить (Ctrl+V)</span>
+                <i className="fa-solid fa-paste"></i><span>{t.contextPaste}</span>
               </button>
             </>
           )}
@@ -2417,12 +2692,12 @@ export default function App() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <h3 style={{ fontSize: 16, margin: 0, color: '#e0e8f0', display: 'flex', alignItems: 'center', gap: 10 }}>
                 <i className="fa-solid fa-layer-group" style={{ color: '#4a9eff' }}></i>
-                Назначить слой
+                {t.modalAssignLayer}
               </h3>
               <i className="fa-solid fa-xmark" style={{ cursor: 'pointer', color: '#8898b0', fontSize: 16 }} onClick={() => setIsLayerModalOpen(false)}></i>
             </div>
             <div style={{ fontSize: 13, color: '#8898b0', marginBottom: 16 }}>
-              Выбрано объектов: <span style={{ color: '#4a9eff', fontWeight: 700 }}>{appState.selectedElements.length}</span>
+              {t.modalSelectedObjects}: <span style={{ color: '#4a9eff', fontWeight: 700 }}>{appState.selectedElements.length}</span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }} className="no-scroll">
               {appState.layers.map(layer => (
@@ -2439,13 +2714,13 @@ export default function App() {
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <i className="fa-solid fa-layer-group" style={{ color: '#4a9eff', fontSize: 13 }}></i>
-                    <span style={{ color: '#e0e8f0', fontWeight: 500, fontSize: 14 }}>{layer.name}</span>
+                    <span style={{ color: '#e0e8f0', fontWeight: 500, fontSize: 14 }}>{layerLabel(layer.name)}</span>
                     <span style={{ color: '#4a5a7a', fontSize: 11, fontFamily: 'monospace' }}>lw:{layer.lw.toFixed(2)}</span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     {usedLayerNames.has(layer.name) && (
                       <span style={{ fontSize: 10, color: '#4ade80', background: 'rgba(74,222,128,0.12)', borderRadius: 4, padding: '1px 6px' }}>
-                        {appState.elements.filter(el => el.layer === layer.name).length} объ.
+                        {appState.elements.filter(el => el.layer === layer.name).length} {t.modalObjectsShort}
                       </span>
                     )}
                     <i className="fa-solid fa-chevron-right" style={{ color: '#4a5a7a', fontSize: 11 }}></i>
@@ -2462,16 +2737,16 @@ export default function App() {
         <div className="modal-overlay" onClick={() => setIsBlockModalOpen(false)}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16}}>
-              <h3 style={{fontSize: 16, margin: 0, color: '#e0e8f0'}}>Менеджер блоков</h3>
+              <h3 style={{fontSize: 16, margin: 0, color: '#e0e8f0'}}>{t.blockManager}</h3>
               <i className="fa-solid fa-xmark" style={{cursor: 'pointer', color: '#8898b0'}} onClick={() => setIsBlockModalOpen(false)}></i>
             </div>
             
             <div style={{marginBottom: 20}}>
-              <div style={{fontSize: 12, color: '#8898b0', marginBottom: 8}}>Создать новый блок из выделенных объектов:</div>
+              <div style={{fontSize: 12, color: '#8898b0', marginBottom: 8}}>{t.createBlockFromSelection}</div>
               <div style={{display: 'flex', gap: 8}}>
                 <input 
                   type="text" 
-                  placeholder="Имя блока..." 
+                  placeholder={t.blockNamePlaceholder}
                   value={newBlockName}
                   onChange={e => setNewBlockName(e.target.value)}
                   style={{flex: 1, padding: '8px 12px', background: '#12121f', border: '1px solid #2e3e54', borderRadius: 4, color: '#e0e8f0', outline: 'none'}}
@@ -2480,29 +2755,29 @@ export default function App() {
                   onClick={createBlock}
                   style={{padding: '8px 16px', background: '#4a9eff', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600}}
                 >
-                  Создать
+                  {t.create}
                 </button>
               </div>
             </div>
 
             <div style={{borderTop: '1px solid #2e3e54', paddingTop: 16}}>
-              <div style={{fontSize: 12, color: '#8898b0', marginBottom: 12}}>Библиотека блоков:</div>
+              <div style={{fontSize: 12, color: '#8898b0', marginBottom: 12}}>{t.blockLibrary}</div>
               <div style={{maxHeight: 250, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8}} className="no-scroll">
                 {appState.blocks.length === 0 ? (
-                  <div style={{color: '#5568A0', fontSize: 13, textAlign: 'center', padding: '20px 0'}}>Нет сохраненных блоков</div>
+                  <div style={{color: '#5568A0', fontSize: 13, textAlign: 'center', padding: '20px 0'}}>{t.noSavedBlocks}</div>
                 ) : (
                   appState.blocks.map(b => (
                     <div key={b.id} style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: '#1a2030', borderRadius: 6, border: '1px solid #2a3a5a'}}>
                       <div style={{display: 'flex', alignItems: 'center', gap: 10}}>
                         <i className="fa-solid fa-shapes" style={{color: '#4a9eff'}}></i>
                         <span style={{color: '#e0e8f0', fontSize: 13, fontWeight: 500}}>{b.name}</span>
-                        <span style={{color: '#5568A0', fontSize: 11}}>({b.elements.length} эл.)</span>
+                        <span style={{color: '#5568A0', fontSize: 11}}>({b.elements.length} {t.elementsShort})</span>
                       </div>
                       <button 
                         onClick={() => startInsertBlock(b)}
                         style={{padding: '4px 12px', background: 'transparent', color: '#4a9eff', border: '1px solid #4a9eff', borderRadius: 4, cursor: 'pointer', fontSize: 12}}
                       >
-                        Вставить
+                        {t.insert}
                       </button>
                     </div>
                   ))

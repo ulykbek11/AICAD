@@ -23,6 +23,7 @@ def _build_model(model_name: str = "gemini-2.5-flash"):
 
 SYSTEM_PROMPT = """
 Ты CAD-ассистент для генерации планов квартир.
+Понимай запрос пользователя на русском ИЛИ английском языке.
 Отвечай ТОЛЬКО валидным JSON без markdown, без пояснений, без блоков кода.
 Только чистый JSON объект.
 
@@ -102,8 +103,10 @@ def detect_intent(prompt: str) -> Intent:
         return "chat"
 
     generate_keywords = [
-        "сгенерируй", "создай", "нарисуй", "построй", "сделай план", 
-        "сделай чертеж", "чертеж", "план", "схему"
+        "сгенерируй", "создай", "нарисуй", "построй", "сделай план",
+        "сделай чертеж", "чертеж", "чертёж", "план", "схему",
+        "generate", "create", "draw", "build", "make a plan", "make plan",
+        "floor plan", "layout", "blueprint", "room plan", "house plan", "apartment plan"
     ]
     
     # If the user explicitly asks to generate/create a plan/drawing
@@ -116,9 +119,19 @@ def detect_intent(prompt: str) -> Intent:
     if is_generate:
         return "generate"
 
+    room_plan_hints = [
+        "bedroom", "bathroom", "kitchen", "living room", "hallway", "toilet",
+        "office", "garage", "apartment", "house", "rooms",
+        "спальня", "ванная", "кухня", "гостиная", "коридор", "туалет",
+        "квартира", "дом", "комнат"
+    ]
+    if any(k in text for k in room_plan_hints):
+        return "generate"
+
     project_keywords = [
-        "aicad", "cad", "dxf", "svg", "слой", "команда", "инструмент", 
-        "как", "почему", "зачем", "алгоритм", "проект"
+        "aicad", "cad", "dxf", "svg", "слой", "команда", "инструмент",
+        "как", "почему", "зачем", "алгоритм", "проект",
+        "layer", "tool", "command", "how", "why", "pipeline", "algorithm"
     ]
     if any(k in text for k in project_keywords):
         return "chat"

@@ -329,7 +329,7 @@ def generate_elements(rooms_with_symbols: list[dict]) -> list[dict]:
 
         # ── Doors ──
         if room["type"] != "hallway":
-            door_w = 70 if room["type"] in ("bathroom", "toilet", "bathroom_2") else 90
+            door_w = 0.7 if room["type"] in ("bathroom", "toilet", "bathroom_2") else 0.9
 
             target_room = None
             adj = room.get("adjacent_to", [])

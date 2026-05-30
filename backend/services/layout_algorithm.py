@@ -1,189 +1,200 @@
+"""
+Layout Algorithm — Squarified Treemap approach based on Marson & Musse (2010).
+Automatic Real-Time Generation of Floor Plans Based on Squarified Treemaps.
+"""
+
 import math
 import logging
+import squarify
 from models.schemas import RoomWithCoords
 
 logger = logging.getLogger(__name__)
 
-WALL_THICKNESS = 0.15
+WALL = 0.15
 
-GRID_POSITIONS = {
-    "top_left": (0, 0),
-    "center_top": (1, 0),
-    "top": (1, 0),
-    "top_right": (2, 0),
-    "left": (0, 1),
-    "center": (1, 1),
-    "right": (2, 1),
-    "bottom_left": (0, 2),
-    "center_bottom": (1, 2),
-    "bottom": (1, 2),
-    "bottom_right": (2, 2)
-}
-
-def get_dimensions(room_type, area):
-    min_dims = {
-        "bathroom": (1.8, 2.2),
-        "toilet": (1.8, 2.2),
-        "bedroom": (2.8, 3.0),
-        "kitchen": (2.5, 2.5),
-        "hallway": (1.2, 1.5)
-    }
-    w, h = min_dims.get(room_type, (3.0, 3.0))
-    if w * h < area:
-        scale = math.sqrt(area / (w * h))
-        w *= scale
-        h *= scale
-    return w, h
-
-
-def layout_by_topology(rooms, topology, offset_x=0.0, offset_y=0.0):
-    """
-    Compact zone-based layout algorithm.
-    
-    Zones are placed in a grid, but empty grid cells are collapsed
-    so there are NO gaps between zones. Within each zone rooms are
-    stacked vertically and stretched to the zone width.
-    """
-    rooms_dict = {r["id"] if isinstance(r, dict) else r.id: r for r in rooms}
-    result = []
-
-    zone_positions = topology.get("zone_positions", {})
-    zones = topology.get("zones", {})
-
-    logger.info("Начинаем компактную расстановку по топологии")
-
-    # 1. Calculate room dimensions
-    room_dims = {}
-    for rid, r_data in rooms_dict.items():
-        is_dict = isinstance(r_data, dict)
-        rtype = r_data.get("type", "unknown") if is_dict else r_data.type
-        rarea = r_data.get("area_m2", 10.0) if is_dict else r_data.area_m2
-        w, h = get_dimensions(rtype, rarea)
-        room_dims[rid] = (rtype, w, h)
-
-    # 2. Build zone list with grid positions
-    zone_list = []
-    for zone_name, room_ids in zones.items():
-        valid_rids = [rid for rid in room_ids if rid in rooms_dict]
-        if not valid_rids:
-            continue
-        pos_name = zone_positions.get(zone_name, "center")
-        col, row = GRID_POSITIONS.get(pos_name, (1, 1))
-
-        # Zone: rooms stacked vertically, width = widest room
-        z_width = max(room_dims[rid][1] for rid in valid_rids)
-        z_height = (sum(room_dims[rid][2] for rid in valid_rids)
-                    + WALL_THICKNESS * max(0, len(valid_rids) - 1))
-
-        zone_list.append({
-            "name": zone_name,
-            "rooms": valid_rids,
-            "col": col,
-            "row": row,
-            "width": z_width,
-            "height": z_height,
-        })
-
-    if not zone_list:
-        logger.warning("Нет зон для расстановки")
-        return result
-
-    # 3. Group zones by rows and compact each row independently.
-    # This avoids artificial empty columns (e.g. center-bottom hallway creating
-    # a global middle gap between left/right rooms in upper rows).
-    row_groups = {}
-    for z in zone_list:
-        row_groups.setdefault(z["row"], []).append(z)
-
-    sorted_rows = sorted(row_groups.keys())
-    row_heights = {}
-    row_widths = {}
-    row_x_start = {}
-
-    # Build compact left-to-right width for each row.
-    for row in sorted_rows:
-        zones_in_row = sorted(row_groups[row], key=lambda z: z["col"])
-        row_groups[row] = zones_in_row
-        row_heights[row] = max(z["height"] for z in zones_in_row)
-
-        row_w = 0.0
-        for idx, z in enumerate(zones_in_row):
-            row_w += z["width"]
-            if idx < len(zones_in_row) - 1:
-                row_w += WALL_THICKNESS
-        row_widths[row] = row_w
-
-    total_plan_width = max(row_widths.values()) if row_widths else 0.0
-
-    # Align narrow rows according to intended horizontal zone position.
-    for row in sorted_rows:
-        zones_in_row = row_groups[row]
-        min_col = min(z["col"] for z in zones_in_row)
-        max_col = max(z["col"] for z in zones_in_row)
-        span = max_col - min_col
-
-        if len(zones_in_row) == 1:
-            single_col = zones_in_row[0]["col"]
-            if single_col == 1:
-                row_x_start[row] = offset_x + (total_plan_width - row_widths[row]) / 2
-            elif single_col == 2:
-                row_x_start[row] = offset_x + (total_plan_width - row_widths[row])
-            else:
-                row_x_start[row] = offset_x
-        elif span == 0:
-            row_x_start[row] = offset_x
+def layout_by_topology(rooms: list, topology: dict, offset_x: float = 0.0, offset_y: float = 0.0) -> list[RoomWithCoords]:
+    room_list = []
+    for r in rooms:
+        if isinstance(r, dict):
+            room_list.append(r)
         else:
-            # Keep multi-zone rows compact and naturally left-anchored.
-            row_x_start[row] = offset_x
-
-    row_y = {}
-    cy = offset_y
-    for idx, row in enumerate(sorted_rows):
-        row_y[row] = cy
-        cy += row_heights[row]
-        if idx < len(sorted_rows) - 1:
-            cy += WALL_THICKNESS
-
-    logger.info(f"Compact rows: rows={sorted_rows}")
-    logger.info(f"row_widths={row_widths}, row_heights={row_heights}")
-    logger.info(f"row_x_start={row_x_start}, row_y={row_y}")
-
-    # 6. Place rooms — stack vertically inside each zone
-    for row in sorted_rows:
-        zones_in_row = row_groups[row]
-        zx = row_x_start[row]
-        for zone in zones_in_row:
-            zy = row_y[row]
-            zone_w = zone["width"]
+            room_list.append({"id": r.id, "type": r.type, "area_m2": getattr(r, "area_m2", 10)})
+            
+    id_to_room = {r["id"]: r for r in room_list}
+    zones = topology.get("zones", {})
+    
+    social_ids = zones.get("social", [])
+    private_ids = zones.get("private", [])
+    service_ids = zones.get("service", [])
+    hallway_ids = zones.get("hallway", [])
+    
+    def get_area(rids):
+        return sum(id_to_room[rid].get("area_m2", 10) for rid in rids)
         
-            # Keep vertical compactness while filling the row's max zone height.
-            target_h = row_heights[row] - WALL_THICKNESS * max(0, len(zone["rooms"]) - 1)
-            current_h = sum(room_dims[rid][2] for rid in zone["rooms"])
-            scale_h = target_h / current_h if current_h > 0 else 1.0
+    area_social = get_area(social_ids)
+    area_private = get_area(private_ids)
+    area_service = get_area(service_ids)
+    
+    # ── ШАГ 4: ВХОД / Коридор ──
+    # hallway/коридор ВСЕГДА размещается последним по оси Y
+    if not hallway_ids:
+        hid = "hallway_auto"
+        hallway_ids.append(hid)
+        id_to_room[hid] = {"id": hid, "type": "hallway", "area_m2": 6.0}
+        
+    area_hallway = get_area(hallway_ids)
+    
+    total_area = area_social + area_private + area_service + area_hallway
+    if total_area == 0: total_area = 10
+    
+    # ── ЦЕЛЕВЫЕ ПРОПОРЦИИ ДОМА ──
+    target_ratio = 1.5
+    W = math.sqrt(total_area * target_ratio)
+    H = math.sqrt(total_area / target_ratio)
+    
+    placed = []
+    
+    max_ratio = 2.0
+    hallway_w = min(W, math.sqrt(area_hallway * max_ratio)) if area_hallway > 0 else 0
+    hallway_h = area_hallway / hallway_w if hallway_w > 0 else 0
+    hallway_x = offset_x + (W - hallway_w) / 2
+    hallway_y = offset_y + H - hallway_h
+    
+    for hid in hallway_ids:
+        placed.append({
+            "id": hid,
+            "type": id_to_room[hid]["type"],
+            "x": hallway_x,
+            "y": hallway_y,
+            "w": hallway_w,
+            "h": hallway_h
+        })
+            
+    rem_h = H - hallway_h
+    
+    # ── ШАГ 2: ФУНКЦИОНАЛЬНЫЕ ЗОНЫ ──
+    active_zones = []
+    if area_service > 0: active_zones.append(("service", service_ids, area_service))
+    if area_social > 0: active_zones.append(("social", social_ids, area_social))
+    if area_private > 0: active_zones.append(("private", private_ids, area_private))
+    
+    active_area = area_service + area_social + area_private
+    
+    zx = offset_x
+    zone_rects = {}
+    for zname, zids, zarea in active_zones:
+        zw = W * (zarea / active_area) if active_area > 0 else 0
+        zone_rects[zname] = (zx, offset_y, zw, rem_h)
+        zx += zw
+        
+    # ── ШАГ 1: SQUARIFIED TREEMAP ──
+    for zname, zids, zarea in active_zones:
+        zx, zy, zw, zh = zone_rects[zname]
+        if not zids: continue
+        
+        zrooms = [id_to_room[rid] for rid in zids]
+        zrooms.sort(key=lambda r: r.get("area_m2", 10), reverse=True)
+        
+        sizes = [r.get("area_m2", 10) for r in zrooms]
+        sum_sizes = sum(sizes)
+        if sum_sizes > 0:
+            sizes = [s * (zw * zh / sum_sizes) for s in sizes]
+            
+        rects = squarify.squarify(sizes, zx, zy, zw, zh)
+        
+        for r, rect in zip(zrooms, rects):
+            placed.append({
+                "id": r["id"],
+                "type": r["type"],
+                "x": rect["x"],
+                "y": rect["y"],
+                "w": rect["dx"],
+                "h": rect["dy"]
+            })
+            
+    # ── ШАГ 3: BACKBONE / КОРИДОР ──
+    lr = next((p for p in placed if p["type"] == "living_room"), None)
+    if not lr and placed:
+        lr = max(placed, key=lambda p: p["w"] * p["h"])
+        
+    if lr:
+        shared_walls = []
+        for i, r1 in enumerate(placed):
+            if r1["type"] == "hallway": continue
+            for j, r2 in enumerate(placed):
+                if i >= j: continue
+                if r2["type"] == "hallway": continue
+                
+                tol = 0.1
+                # Vertical shared wall
+                if abs(r1["x"] + r1["w"] - r2["x"]) < tol or abs(r2["x"] + r2["w"] - r1["x"]) < tol:
+                    y_start = max(r1["y"], r2["y"])
+                    y_end = min(r1["y"] + r1["h"], r2["y"] + r2["h"])
+                    if y_end - y_start > 1.0:
+                        wall_x = r1["x"] + r1["w"] if abs(r1["x"] + r1["w"] - r2["x"]) < tol else r2["x"] + r2["w"]
+                        shared_walls.append({
+                            "type": "v", "x": wall_x, "y0": y_start, "y1": y_end,
+                            "r1": r1, "r2": r2, "len": y_end - y_start
+                        })
+                # Horizontal shared wall
+                if abs(r1["y"] + r1["h"] - r2["y"]) < tol or abs(r2["y"] + r2["h"] - r1["y"]) < tol:
+                    x_start = max(r1["x"], r2["x"])
+                    x_end = min(r1["x"] + r1["w"], r2["x"] + r2["w"])
+                    if x_end - x_start > 1.0:
+                        wall_y = r1["y"] + r1["h"] if abs(r1["y"] + r1["h"] - r2["y"]) < tol else r2["y"] + r2["h"]
+                        shared_walls.append({
+                            "type": "h", "y": wall_y, "x0": x_start, "x1": x_end,
+                            "r1": r1, "r2": r2, "len": x_end - x_start
+                        })
 
-            for rid in zone["rooms"]:
-                rtype, w, h = room_dims[rid]
-                adjusted_h = h * scale_h
+        covered = {lr["id"]}
+        if hallway_ids:
+            covered.update(hallway_ids)
+            
+        backbone_walls = []
+        uncovered = {p["id"] for p in placed} - covered
+        
+        while uncovered:
+            candidates = []
+            for w in shared_walls:
+                c1 = w["r1"]["id"] in covered
+                c2 = w["r2"]["id"] in covered
+                if c1 != c2:
+                    candidates.append(w)
+                    
+            if not candidates:
+                break
+                
+            best_wall = max(candidates, key=lambda w: w["len"])
+            backbone_walls.append(best_wall)
+            covered.add(best_wall["r1"]["id"])
+            covered.add(best_wall["r2"]["id"])
+            uncovered = {p["id"] for p in placed} - covered
+            
+        for w in backbone_walls:
+            r1 = w["r1"]
+            r2 = w["r2"]
+            if "adjacent_to" not in r1: r1["adjacent_to"] = []
+            if "adjacent_to" not in r2: r2["adjacent_to"] = []
+            if r2["id"] not in r1["adjacent_to"]: r1["adjacent_to"].append(r2["id"])
+            if r1["id"] not in r2["adjacent_to"]: r2["adjacent_to"].append(r1["id"])
 
-                result.append(RoomWithCoords(
-                    id=rid,
-                    type=rtype,
-                    x=round(zx, 3),
-                    y=round(zy, 3),
-                    width=round(zone_w, 3),
-                    height=round(adjusted_h, 3),
-                    label=f"{rtype} ({rid})"
-                ))
-                zy += adjusted_h + WALL_THICKNESS
+    result = []
+    for p in placed:
+        if p["w"] < 0.5: p["w"] = 0.5
+        if p["h"] < 0.5: p["h"] = 0.5
+        label = p['type']
+        if p['type'] == 'hallway': label = "Коридор"
+        result.append(RoomWithCoords(
+            id=p["id"],
+            type=p["type"],
+            x=round(p["x"], 3),
+            y=round(p["y"], 3),
+            width=round(p["w"], 3),
+            height=round(p["h"], 3),
+            label=label,
+            adjacent_to=p.get("adjacent_to", [])
+        ))
 
-            zx += zone_w + WALL_THICKNESS
-
-    logger.info(f"Расстановка завершена, комнат: {len(result)}")
-    logger.info("=== ФИНАЛЬНЫЕ КООРДИНАТЫ КОМНАТ ===")
-    for room in result:
-        logger.info(
-            f"{room.type}: x={room.x} y={room.y} "
-            f"w={room.width} h={room.height}"
-        )
-
+    logger.info(f"Layout done: {len(result)} rooms placed via Squarified Treemap")
     return result

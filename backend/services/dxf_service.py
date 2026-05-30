@@ -177,6 +177,13 @@ def generate_dxf(rooms_with_symbols: list[dict]) -> tuple[str, str]:
             align=TextEntityAlignment.MIDDLE_CENTER,
         )
 
+        if room["type"] == "hallway":
+            ex = x + w / 2
+            ey = y + h
+            ent_text = msp.add_text("ВХОД", dxfattribs={"layer": "Текст", "height": 20, "color": 3})
+            ent_text.set_placement((ex, ey + 40), align=TextEntityAlignment.BOTTOM_CENTER)
+            msp.add_lwpolyline([(ex, ey + 25), (ex - 10, ey + 45), (ex + 10, ey + 45), (ex, ey + 25)], dxfattribs={"layer": "Текст", "color": 3})
+
     if all_x and all_y:
         min_x, max_x = min(all_x), max(all_x)
         min_y, max_y = min(all_y), max(all_y)

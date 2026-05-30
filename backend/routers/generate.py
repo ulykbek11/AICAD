@@ -31,6 +31,7 @@ def _rooms_with_coords_to_bboxes(rooms_with_coords):
             "x1": r.x + r.width,
             "y1": r.y + r.height,
             "label": r.label,
+            "adjacent_to": r.adjacent_to,
         }
         for r in rooms_with_coords
     ]
@@ -259,25 +260,34 @@ def filter_topology(topology, room_ids):
     """Фильтрует топологию оставляя только нужные комнаты"""
     id_set = set(room_ids)
     
-    filtered_zones = {}
-    for zone, ids in topology["zones"].items():
-        filtered = [i for i in ids if i in id_set]
-        if filtered:
-            filtered_zones[zone] = filtered
-    
     filtered_adjacency = [
-        pair for pair in topology["adjacency"]
+        pair for pair in topology.get("adjacency", [])
         if pair[0] in id_set and pair[1] in id_set
     ]
     
-    filtered_zone_positions = {
-        z: p for z, p in topology["zone_positions"].items()
-        if z in filtered_zones
-    }
+    filtered_forbidden = [
+        pair for pair in topology.get("forbidden", [])
+        if pair[0] in id_set and pair[1] in id_set
+    ]
+    
+    filtered_wet_zone = [
+        r for r in topology.get("wet_zone", [])
+        if r in id_set
+    ]
+    
+    anchor = topology.get("anchor")
+    if anchor not in id_set and id_set:
+        anchor = list(id_set)[0]
+    
+    filtered_zones = {}
+    if "zones" in topology:
+        for z_name, z_ids in topology["zones"].items():
+            filtered_zones[z_name] = [rid for rid in z_ids if rid in id_set]
     
     return {
-        "entry_side": topology["entry_side"],
-        "zones": filtered_zones,
-        "zone_positions": filtered_zone_positions,
-        "adjacency": filtered_adjacency
+        "anchor": anchor,
+        "adjacency": filtered_adjacency,
+        "forbidden": filtered_forbidden,
+        "wet_zone": filtered_wet_zone,
+        "zones": filtered_zones
     }

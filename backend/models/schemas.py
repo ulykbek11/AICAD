@@ -29,6 +29,7 @@ class RoomWithCoords(BaseModel):
     width: float
     height: float
     label: str
+    adjacent_to: List[str] = []
 
 
 class GenerateResponse(BaseModel):
