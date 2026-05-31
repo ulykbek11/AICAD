@@ -170,16 +170,16 @@ def _draw_dimension(elements, x1, y1, x2, y2, offset=80):
 
     if abs(x2 - x1) > abs(y2 - y1):
         # Horizontal
-        elements.append(_line(x1, y1 + offset, x2, y2 + offset, "Размеры", "#ff4444"))
-        elements.append(_line(x1, y1, x1, y1 + offset, "Размеры", "#ff4444"))
-        elements.append(_line(x2, y2, x2, y2 + offset, "Размеры", "#ff4444"))
-        elements.append(_text((x1 + x2) / 2, y1 + offset + 5, label, "Размеры", 15, "#ff4444"))
+        elements.append(_line(x1, y1 + offset, x2, y2 + offset, "Размеры", "#ff5555"))
+        elements.append(_line(x1, y1, x1, y1 + offset, "Размеры", "#ff5555"))
+        elements.append(_line(x2, y2, x2, y2 + offset, "Размеры", "#ff5555"))
+        elements.append(_text((x1 + x2) / 2, y1 + offset + 5, label, "Размеры", 15, "#ff5555"))
     else:
         # Vertical
-        elements.append(_line(x1 + offset, y1, x2 + offset, y2, "Размеры", "#ff4444"))
-        elements.append(_line(x1, y1, x1 + offset, y1, "Размеры", "#ff4444"))
-        elements.append(_line(x2, y2, x2 + offset, y2, "Размеры", "#ff4444"))
-        elements.append(_text(x1 + offset + 5, (y1 + y2) / 2, label, "Размеры", 15, "#ff4444"))
+        elements.append(_line(x1 + offset, y1, x2 + offset, y2, "Размеры", "#ff5555"))
+        elements.append(_line(x1, y1, x1 + offset, y1, "Размеры", "#ff5555"))
+        elements.append(_line(x2, y2, x2 + offset, y2, "Размеры", "#ff5555"))
+        elements.append(_text(x1 + offset + 5, (y1 + y2) / 2, label, "Размеры", 15, "#ff5555"))
 
 
 # ═══════════════════════════════════════════════════════
@@ -295,6 +295,101 @@ def _draw_symbol(elements, symbol):
 # Main entry point
 # ═══════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════
+# Helper functions for geometric layout validation
+# ═══════════════════════════════════════════════════════
+
+def find_door_position(room: dict, target_room: dict, door_w_m: float) -> tuple[float, float, str] | None:
+    # Coords in meters
+    x0, y0, x1, y1 = room["x0"], room["y0"], room["x1"], room["y1"]
+    tx0, ty0, tx1, ty1 = target_room["x0"], target_room["y0"], target_room["x1"], target_room["y1"]
+    
+    tol = 0.05
+    # Check vertical shared wall
+    # 1. Target is to the left of room (room's left wall touches target's right wall)
+    if abs(x0 - tx1) < tol:
+        y_start = max(y0, ty0)
+        y_end = min(y1, ty1)
+        if y_end - y_start >= door_w_m:
+            door_y = (y_start + y_end) / 2 - door_w_m / 2
+            return x0, door_y, "left"
+            
+    # 2. Target is to the right of room (room's right wall touches target's left wall)
+    elif abs(x1 - tx0) < tol:
+        y_start = max(y0, ty0)
+        y_end = min(y1, ty1)
+        if y_end - y_start >= door_w_m:
+            door_y = (y_start + y_end) / 2 - door_w_m / 2
+            return x1, door_y, "right"
+            
+    # Check horizontal shared wall
+    # 3. Target is below room (room's bottom wall touches target's top wall)
+    if abs(y0 - ty1) < tol:
+        x_start = max(x0, tx0)
+        x_end = min(x1, tx1)
+        if x_end - x_start >= door_w_m:
+            door_x = (x_start + x_end) / 2 - door_w_m / 2
+            return door_x, y0, "bottom"
+            
+    # 4. Target is above room (room's top wall touches target's bottom wall)
+    elif abs(y1 - ty0) < tol:
+        x_start = max(x0, tx0)
+        x_end = min(x1, tx1)
+        if x_end - x_start >= door_w_m:
+            door_x = (x_start + x_end) / 2 - door_w_m / 2
+            return door_x, y1, "top"
+            
+    return None
+
+def get_external_walls(room: dict, rooms: list[dict]) -> list[str]:
+    # Coords in meters
+    x0, y0, x1, y1 = room["x0"], room["y0"], room["x1"], room["y1"]
+    
+    external = ["top", "bottom", "left", "right"]
+    tol = 0.05
+    
+    for r in rooms:
+        if r["id"] == room["id"]: continue
+        rx0, ry0, rx1, ry1 = r["x0"], r["y0"], r["x1"], r["y1"]
+        
+        # Check if r blocks A's top wall
+        if abs(ry1 - y0) < tol:
+            x_overlap = min(x1, rx1) - max(x0, rx0)
+            if x_overlap > 0.1:
+                if "top" in external: external.remove("top")
+                
+        # Check B's top touches A's bottom
+        if abs(ry0 - y1) < tol:
+            x_overlap = min(x1, rx1) - max(x0, rx0)
+            if x_overlap > 0.1:
+                if "bottom" in external: external.remove("bottom")
+                
+        # Check B's right touches A's left
+        if abs(rx1 - x0) < tol:
+            y_overlap = min(y1, ry1) - max(y0, ry0)
+            if y_overlap > 0.1:
+                if "left" in external: external.remove("left")
+                
+        # Check B's left touches A's right
+        if abs(rx0 - x1) < tol:
+            y_overlap = min(y1, ry1) - max(y0, ry0)
+            if y_overlap > 0.1:
+                if "right" in external: external.remove("right")
+                
+    return external
+
+def _draw_window_oriented(elements, x, y, size, orientation="horizontal"):
+    if orientation == "horizontal":
+        for offset in [0, WALL_THICKNESS / 2, WALL_THICKNESS]:
+            elements.append(_line(x, y + offset, x + size, y + offset, "Окна", "#00ffff"))
+    else:
+        for offset in [0, WALL_THICKNESS / 2, WALL_THICKNESS]:
+            elements.append(_line(x + offset, y, x + offset, y + size, "Окна", "#00ffff"))
+
+# ═══════════════════════════════════════════════════════
+# Main entry point
+# ═══════════════════════════════════════════════════════
+
 def generate_elements(rooms_with_symbols: list[dict]) -> list[dict]:
     """
     Convert rooms_with_symbols into a flat list of CAD elements
@@ -304,14 +399,16 @@ def generate_elements(rooms_with_symbols: list[dict]) -> list[dict]:
     all_x: list[float] = []
     all_y: list[float] = []
 
-    # Compute plan center for door placement
-    if rooms_with_symbols:
-        all_cx = [r["x0"] + (r["x1"] - r["x0"]) / 2 for r in rooms_with_symbols]
-        all_cy = [r["y0"] + (r["y1"] - r["y0"]) / 2 for r in rooms_with_symbols]
-        plan_cx = sum(all_cx) / len(all_cx)
-        plan_cy = sum(all_cy) / len(all_cy)
-    else:
-        plan_cx, plan_cy = 0, 0
+    # Находим общие габариты для позиционирования входа
+    hallway_rooms = [r for r in rooms_with_symbols if r["type"] == "hallway"]
+    
+    # Определяем, есть ли U-образная форма
+    is_u_shape = False
+    if hallway_rooms:
+        hall_w = max(r["x1"] - r["x0"] for r in hallway_rooms)
+        # Если коридор очень длинный (>= 15м), это U-образная форма
+        if hall_w >= 15.0:
+            is_u_shape = True
 
     for room in rooms_with_symbols:
         x = room["x0"] * SCALE
@@ -328,57 +425,73 @@ def generate_elements(rooms_with_symbols: list[dict]) -> list[dict]:
         _draw_wall(elements, x, y + h, x, y)
 
         # ── Doors ──
-        if room["type"] != "hallway":
-            door_w = 0.7 if room["type"] in ("bathroom", "toilet", "bathroom_2") else 0.9
+        if room["type"] != "hallway" and room["type"] != "balcony":
+            door_w_m = 0.7 if room["type"] in ("bathroom", "toilet", "bathroom_2") else 0.9
+            door_w = door_w_m * SCALE
 
-            target_room = None
-            adj = room.get("adjacent_to", [])
-            if adj:
-                for r in rooms_with_symbols:
-                    if r.get("id") in adj:
-                        target_room = r
+            # Геометрический поиск смежной стены с коридором или другими комнатами
+            placed_door = None
+            adj_ids = room.get("adjacent_to", [])
+            
+            # 1. Сначала ищем смежность с коридором
+            for r in rooms_with_symbols:
+                if r["id"] in adj_ids and r["type"] == "hallway":
+                    res = find_door_position(room, r, door_w_m)
+                    if res:
+                        placed_door = res
                         break
-            if not target_room:
+            
+            # 2. Если нет, ищем смежность с любой комнатой из adjacent_to
+            if not placed_door:
+                for r in rooms_with_symbols:
+                    if r["id"] in adj_ids and r["id"] != room["id"]:
+                        res = find_door_position(room, r, door_w_m)
+                        if res:
+                            placed_door = res
+                            break
+                            
+            # 3. Если нет, ищем любой коридор в доме
+            if not placed_door:
                 for r in rooms_with_symbols:
                     if r["type"] == "hallway":
-                        target_room = r
-                        break
+                        res = find_door_position(room, r, door_w_m)
+                        if res:
+                            placed_door = res
+                            break
+                            
+            # 4. Если нет, ищем любую комнату
+            if not placed_door:
+                for r in rooms_with_symbols:
+                    if r["id"] != room["id"] and r["type"] != "balcony":
+                        res = find_door_position(room, r, door_w_m)
+                        if res:
+                            placed_door = res
+                            break
 
-            room_cx = room["x0"] + (room["x1"] - room["x0"]) / 2
-            room_cy = room["y0"] + (room["y1"] - room["y0"]) / 2
-
-            if target_room:
-                tx = target_room["x0"] + (target_room["x1"] - target_room["x0"]) / 2
-                ty = target_room["y0"] + (target_room["y1"] - target_room["y0"]) / 2
+            if placed_door:
+                door_x_m, door_y_m, wall = placed_door
+                _draw_door(elements, door_x_m * SCALE, door_y_m * SCALE, door_w, wall=wall)
             else:
-                tx, ty = plan_cx, plan_cy
-
-            dx = tx - room_cx
-            dy = ty - room_cy
-
-            if abs(dx) > abs(dy):
-                wall = "right" if dx > 0 else "left"
-            else:
-                wall = "top" if dy > 0 else "bottom"
-
-            if wall == "bottom":
-                door_x = x + w / 2 - door_w / 2
-                door_y = y
-            elif wall == "top":
-                door_x = x + w / 2 - door_w / 2
-                door_y = y + h
-            elif wall == "left":
-                door_x = x
-                door_y = y + h / 2 - door_w / 2
-            else:
-                door_x = x + w
-                door_y = y + h / 2 - door_w / 2
-
-            _draw_door(elements, door_x, door_y, door_w, wall=wall)
+                # Абсолютный fallback, если комната изолирована
+                _draw_door(elements, x + w / 2 - door_w / 2, y, door_w, wall="bottom")
 
         # ── Windows ──
-        if room["type"] in ("living_room", "bedroom", "bedroom_2", "bedroom_3", "kitchen", "dining_room", "office"):
-            _draw_window(elements, x + w * 0.3, y + h - WALL_THICKNESS, w * 0.4)
+        if room["type"] in ("living_room", "bedroom", "bedroom_2", "bedroom_3", "kitchen", "dining_room", "office", "boiler_room"):
+            ext_walls = get_external_walls(room, rooms_with_symbols)
+            if ext_walls:
+                # Выбираем наиболее подходящую внешнюю стену
+                # Приоритет: top, bottom, left, right
+                if "top" in ext_walls:
+                    _draw_window_oriented(elements, x + w * 0.3, y, w * 0.4, "horizontal")
+                elif "bottom" in ext_walls:
+                    _draw_window_oriented(elements, x + w * 0.3, y + h - WALL_THICKNESS, w * 0.4, "horizontal")
+                elif "left" in ext_walls:
+                    _draw_window_oriented(elements, x, y + h * 0.3, h * 0.4, "vertical")
+                elif "right" in ext_walls:
+                    _draw_window_oriented(elements, x + w - WALL_THICKNESS, y + h * 0.3, h * 0.4, "vertical")
+            else:
+                # Fallback
+                _draw_window_oriented(elements, x + w * 0.3, y + h - WALL_THICKNESS, w * 0.4, "horizontal")
 
         # ── Room Label ──
         label = room.get("label", ROOM_LABELS.get(room["type"], room["type"]))
@@ -387,6 +500,34 @@ def generate_elements(rooms_with_symbols: list[dict]) -> list[dict]:
         # ── Furniture Symbols ──
         for symbol in room.get("symbols", []):
             _draw_symbol(elements, symbol)
+
+    # ── ВХОДНАЯ ГРУППА ──
+    # Рисуем вход для первого коридора
+    if hallway_rooms:
+        main_hall = hallway_rooms[0]
+        hx = main_hall["x0"] * SCALE
+        hy = main_hall["y0"] * SCALE
+        hw = (main_hall["x1"] - main_hall["x0"]) * SCALE
+        hh = (main_hall["y1"] - main_hall["y0"]) * SCALE
+        
+        if is_u_shape:
+            # Для U-образной формы: вход по центру снизу
+            ex = hx + hw / 2
+            ey = hy + hh
+            # Текст ВХОД и стрелка вверх
+            elements.append(_text(ex, ey + 40, "ВХОД", "Текст", 20, "#55ff55"))
+            elements.append(_polyline([[ex, ey + 25], [ex - 10, ey + 45], [ex + 10, ey + 45], [ex, ey + 25]], "Текст", "#55ff55"))
+            # Сама дверь
+            _draw_door(elements, ex - 45, ey, 90, wall="bottom")
+        else:
+            # Для RECT, L, T: вход с левого торца коридора
+            ex = hx
+            ey = hy + hh / 2
+            # Текст ВХОД и стрелка вправо
+            elements.append(_text(ex - 60, ey + 25, "ВХОД", "Текст", 20, "#55ff55"))
+            elements.append(_polyline([[ex - 25, ey], [ex - 45, ey - 10], [ex - 45, ey + 10], [ex - 25, ey]], "Текст", "#55ff55"))
+            # Дверь открывается внутрь коридора
+            _draw_door(elements, ex, ey - 45, 90, wall="left")
 
     # ── Overall Dimensions ──
     if all_x and all_y:
