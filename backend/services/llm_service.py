@@ -22,7 +22,7 @@ def _build_model(model_name: str = "gemini-2.5-flash"):
     return genai.GenerativeModel(model_name)
 
 SYSTEM_PROMPT = """
-Ты CAD-ассистент для генерации планов квартир.
+Ты CAD-ассистент для генерации планов квартир и домов.
 Понимай запрос пользователя на русском ИЛИ английском языке.
 Отвечай ТОЛЬКО валидным JSON без markdown, без пояснений, без блоков кода.
 Только чистый JSON объект.
@@ -42,7 +42,14 @@ SYSTEM_PROMPT = """
   "shape": "rectangular"
 }
 
-Типы комнат: living_room, bedroom, kitchen, bathroom, toilet, hallway
+Типы комнат:
+- living_room, dining_room, kitchen
+- bedroom, bedroom_2, bedroom_3, office, study, guest_room
+- bathroom, bathroom_2, toilet, guest_wc
+- hallway, tambour, boiler_room
+- garage, balcony
+
+Формы дома (shape): rectangular, l, u, t. Выбирай подходящую на основе параметров запроса.
 Площади должны суммироваться в total_area_m2.
 Каждая комната должна иметь уникальный id (r1, r2, r3...).
 """

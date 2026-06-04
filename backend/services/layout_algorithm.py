@@ -77,11 +77,11 @@ def layout_by_topology(rooms: list, topology: dict, offset_x: float = 0.0, offse
     # Определение формы
     shape_lower = str(shape).lower()
     
-    if "l" in shape_lower:
+    if shape_lower.startswith("l") or "l_shape" in shape_lower:
         return _layout_l_shape(room_list, offset_x, offset_y)
-    elif "u" in shape_lower:
+    elif shape_lower.startswith("u") or "u_shape" in shape_lower:
         return _layout_u_shape(room_list, offset_x, offset_y)
-    elif "t" in shape_lower:
+    elif shape_lower.startswith("t") or "t_shape" in shape_lower:
         return _layout_t_shape(room_list, offset_x, offset_y)
     else:
         return _layout_rectangular(room_list, offset_x, offset_y)

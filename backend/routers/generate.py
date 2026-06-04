@@ -82,15 +82,16 @@ def chat_generate(request: GenerateRequest):
         topology = generate_topology(rooms)
         logger.info(f"Топология: {topology}")
 
+        shape_val = room_graph.get("shape", "rectangular")
         if route.get("floors", 1) == 2:
             # Двухэтажный — разбить на этажи
             rooms_with_coords = layout_two_floors_topology(
-                rooms, topology
+                rooms, topology, shape=shape_val
             )
         else:
             # Один этаж — новый алгоритм
             rooms_with_coords = layout_by_topology(
-                rooms, topology
+                rooms, topology, shape=shape_val
             )
 
         logger.info(f"Расставлено комнат: {len(rooms_with_coords)}")
@@ -186,11 +187,12 @@ async def websocket_generate(websocket: WebSocket, session_id: str):
 
         topology = await run_in_threadpool(generate_topology, room_graph["rooms"])
 
+        shape_val = room_graph.get("shape", "rectangular")
         if route.get("floors", 1) == 2:
-            rooms_with_coords = await run_in_threadpool(layout_two_floors_topology, room_graph["rooms"], topology)
+            rooms_with_coords = await run_in_threadpool(layout_two_floors_topology, room_graph["rooms"], topology, shape=shape_val)
             room_bboxes = await run_in_threadpool(_rooms_with_coords_to_bboxes, rooms_with_coords)
         else:
-            rooms_with_coords = await run_in_threadpool(layout_by_topology, room_graph["rooms"], topology)
+            rooms_with_coords = await run_in_threadpool(layout_by_topology, room_graph["rooms"], topology, shape=shape_val)
             room_bboxes = await run_in_threadpool(_rooms_with_coords_to_bboxes, rooms_with_coords)
 
         await websocket.send_json(
@@ -229,7 +231,7 @@ async def websocket_generate(websocket: WebSocket, session_id: str):
     except Exception as e:
         await websocket.send_json({"stage": "error", "message": str(e)})
 
-def layout_two_floors_topology(rooms, topology):
+def layout_two_floors_topology(rooms, topology, shape: str = "rectangular"):
     FLOOR1 = ["living_room","kitchen","hallway",
                "bathroom","dining_room","garage"]
     FLOOR2 = ["bedroom","bedroom_2","bedroom_3",
@@ -238,18 +240,18 @@ def layout_two_floors_topology(rooms, topology):
     floor1_rooms = [r for r in rooms if r["type"] in FLOOR1]
     floor2_rooms = [r for r in rooms if r["type"] not in FLOOR1]
     
-    # Разделить топологию на два этажа
+    # Разделить топологию на два этажи
     topo1 = filter_topology(topology, 
                             [r["id"] for r in floor1_rooms])
     topo2 = filter_topology(topology,
                             [r["id"] for r in floor2_rooms])
     
-    plan1 = layout_by_topology(floor1_rooms, topo1)
+    plan1 = layout_by_topology(floor1_rooms, topo1, shape=shape)
     
     max_x = max((r.x + r.width) for r in plan1) if plan1 else 0
     GAP = 3.0
     
-    plan2 = layout_by_topology(floor2_rooms, topo2, offset_x=max_x + GAP)
+    plan2 = layout_by_topology(floor2_rooms, topo2, offset_x=max_x + GAP, shape=shape)
     
     for r in plan1: r.label = f"1эт: {r.label}"
     for r in plan2: r.label = f"2эт: {r.label}"

@@ -26,6 +26,64 @@ const LAYER_NAME_MAP = {
   'Подложка': 'Underlay',
 };
 
+const WIZARD_QUESTIONS = [
+  {
+    key: 'start',
+    text: 'Давайте настроим ваш идеальный дом. Запустим пошаговый опрос или сгенерируем сразу?',
+    options: ['Запустить помощник 📋', 'Сгенерировать сразу ⚡'],
+  },
+  {
+    key: 'shape',
+    text: 'Шаг 1 из 10: Выберите форму дома (доступны прямоугольник и сложные формы):',
+    options: ['Прямоугольная', 'Г-образная', 'П-образная', 'Т-образная', 'Свой вариант (напишите)'],
+  },
+  {
+    key: 'floors',
+    text: 'Шаг 2 из 10: Сколько этажей планируется в доме?',
+    options: ['1 этаж', '2 этажа', 'Свой вариант (напишите)'],
+  },
+  {
+    key: 'total_area',
+    text: 'Шаг 3 из 10: Какая планируется общая площадь дома?',
+    options: ['Около 60 м²', 'Около 100 м²', 'Около 150 м²', 'Около 200 м²', 'Свой вариант (напишите)'],
+  },
+  {
+    key: 'bedrooms',
+    text: 'Шаг 4 из 10: Сколько спален необходимо разместить?',
+    options: ['1 спальня', '2 спальни', '3 спальни', '4 спальни', 'Свой вариант (напишите)'],
+  },
+  {
+    key: 'bathrooms',
+    text: 'Шаг 5 из 10: Сколько санузлов вам нужно?',
+    options: ['1 санузел', '2 санузла', '3 санузла', 'Свой вариант (напишите)'],
+  },
+  {
+    key: 'room_sizes',
+    text: 'Шаг 6 из 10: Какие площади комнат вы предпочитаете?',
+    options: ['Компактные (спальни ~10-12 м²)', 'Средние (спальни ~15 м²)', 'Просторные (спальни >20 м²)', 'Свой вариант (напишите)'],
+  },
+  {
+    key: 'kitchen_style',
+    text: 'Шаг 7 из 10: Какое предпочтение по планировке кухни?',
+    options: ['Объединенная кухня-гостиная (студия)', 'Отдельная изолированная кухня', 'Свой вариант (напишите)'],
+  },
+  {
+    key: 'garage',
+    text: 'Шаг 8 из 10: Нужен ли гараж?',
+    options: ['Без гаража', 'Гараж на 1 машину', 'Гараж на 2 машины', 'Свой вариант (напишите)'],
+  },
+  {
+    key: 'extra_rooms',
+    text: 'Шаг 9 из 10: Какие дополнительные помещения добавить?',
+    options: ['Только базовые', 'Кабинет', 'Котельная/Тех.помещение', 'Гардеробная', 'Свой вариант (напишите)'],
+  },
+  {
+    key: 'entrance_side',
+    text: 'Шаг 10 из 10: С какой стороны планируется главный вход?',
+    options: ['Снизу (Юг)', 'Слева (Запад)', 'Справа (Восток)', 'Сверху (Север)', 'Свой вариант (напишите)'],
+  }
+];
+
 export default function App() {
   const [appState, setAppState] = useState({
     activeTool: 'select',
@@ -56,6 +114,10 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState('');
   const [cmdInput, setCmdInput] = useState('');
+  const [wizardState, setWizardState] = useState({
+    step: -1,
+    answers: {},
+  });
   const [contextMenu, setContextMenu] = useState(null); // { type: 'object'|'canvas', x, y, targetId? }
   const [selectionClipboard, setSelectionClipboard] = useState([]);
   const [measurementInfo, setMeasurementInfo] = useState(null);
@@ -1631,11 +1693,118 @@ export default function App() {
     }));
   };
 
-  const sendMessage = async (prompt) => {
+  const checkIsGenerationPrompt = (text) => {
+    const txt = (text || "").toLowerCase();
+    const keywords = [
+      "план", "дом", "квартир", "сгенер", "постро", "созда", "чертеж", "чертёж",
+      "layout", "plan", "generate", "create", "draw", "комнат"
+    ];
+    return keywords.some(k => txt.includes(k));
+  };
+
+  const handleWizardAnswer = (answerText) => {
+    const currentStep = wizardState.step;
+    const currentQuestion = WIZARD_QUESTIONS[currentStep];
+    const nextStep = currentStep + 1;
+    
+    // Add user answer to chat
+    addMessage('user', answerText);
+    
+    const updatedAnswers = { ...wizardState.answers };
+    if (currentStep > 0) {
+      updatedAnswers[currentQuestion.key] = answerText;
+    }
+    
+    if (currentStep === 0) {
+      if (answerText.includes('Сгенерировать сразу')) {
+        setWizardState({ step: -1, answers: {} });
+        // Call backend immediately with the original prompt
+        sendMessage(wizardState.answers.initialPrompt, true);
+        return;
+      }
+    }
+    
+    if (nextStep < WIZARD_QUESTIONS.length) {
+      setWizardState({
+        step: nextStep,
+        answers: updatedAnswers
+      });
+      const nextQuestion = WIZARD_QUESTIONS[nextStep];
+      setTimeout(() => {
+        setAppState(prev => ({
+          ...prev,
+          chatMessages: [...prev.chatMessages, {
+            role: 'assistant',
+            text: nextQuestion.text,
+            options: nextQuestion.options
+          }]
+        }));
+      }, 300);
+    } else {
+      // Completed all steps!
+      setWizardState({ step: -1, answers: {} });
+      
+      const finalPrompt = `Сгенерируй дом на основе следующих параметров:
+- Форма дома: ${updatedAnswers.shape}
+- Количество этажей: ${updatedAnswers.floors}
+- Общая площадь: ${updatedAnswers.total_area}
+- Количество спален: ${updatedAnswers.bedrooms}
+- Количество санузлов: ${updatedAnswers.bathrooms}
+- Предпочтения по площади комнат: ${updatedAnswers.room_sizes}
+- Тип кухни: ${updatedAnswers.kitchen_style}
+- Гараж: ${updatedAnswers.garage}
+- Дополнительные комнаты: ${updatedAnswers.extra_rooms}
+- Расположение входа: ${updatedAnswers.entrance_side}
+Исходное описание пользователя: "${updatedAnswers.initialPrompt || ''}"`;
+
+      setTimeout(() => {
+        setAppState(prev => ({
+          ...prev,
+          chatMessages: [...prev.chatMessages, {
+            role: 'assistant',
+            text: 'Все параметры собраны! Начинаю генерацию чертежа...'
+          }]
+        }));
+        sendMessage(finalPrompt, true);
+      }, 300);
+    }
+  };
+
+  const sendMessage = async (prompt, isFinalDirect = false) => {
+    if (wizardState.step !== -1 && !isFinalDirect) {
+      handleWizardAnswer(prompt);
+      return;
+    }
+
+    if (!isFinalDirect) {
+      const isGen = checkIsGenerationPrompt(prompt);
+      if (isGen) {
+        setWizardState({
+          step: 0,
+          answers: { initialPrompt: prompt }
+        });
+        setAppState(prev => ({
+          ...prev,
+          chatMessages: [
+            ...prev.chatMessages,
+            { role: 'user', text: prompt },
+            {
+              role: 'assistant',
+              text: WIZARD_QUESTIONS[0].text,
+              options: WIZARD_QUESTIONS[0].options
+            }
+          ]
+        }));
+        return;
+      }
+    }
+
     try {
       setLoading(true);
       setDownloadUrl('');
-      addMessage('user', prompt);
+      if (!isFinalDirect) {
+        addMessage('user', prompt);
+      }
       addMessage('assistant', t.analyzingRequest);
       updateProgress(10, t.analyzing);
       logCmd("AI_REQUEST");
@@ -2446,7 +2615,32 @@ export default function App() {
                       : { background: '#1a2a4a', border: '1px solid #2a4a7a', color: '#d0e0f0', borderTopRightRadius: 2 }
                     )
                   }}>
-                    {msg.text}
+                    <div>{msg.text}</div>
+                    {msg.options && i === appState.chatMessages.length - 1 && wizardState.step !== -1 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                        {msg.options.map((opt, idx) => (
+                          <button
+                            key={idx}
+                            onClick={() => handleWizardAnswer(opt)}
+                            style={{
+                              background: '#242448',
+                              border: '1px solid #3b82f6',
+                              color: '#60a5fa',
+                              padding: '6px 12px',
+                              borderRadius: 6,
+                              fontSize: 11,
+                              cursor: 'pointer',
+                              transition: 'all 0.2s',
+                              outline: 'none'
+                            }}
+                            onMouseOver={(e) => { e.currentTarget.style.background = '#3b82f6'; e.currentTarget.style.color = '#fff'; }}
+                            onMouseOut={(e) => { e.currentTarget.style.background = '#242448'; e.currentTarget.style.color = '#60a5fa'; }}
+                          >
+                            {opt}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -2490,7 +2684,7 @@ export default function App() {
                 <textarea
                   style={{ background: 'transparent', border: 'none', outline: 'none', width: '100%', padding: '10px 12px', color: '#d0d8e8', resize: 'none', fontSize: 13, fontFamily: "'Inter', sans-serif", lineHeight: 1.5 }}
                   rows="2"
-                  placeholder={t.describeDrawing}
+                  placeholder={wizardState.step !== -1 ? (language === 'en' ? 'Or enter custom answer...' : 'Или введите свой вариант ответа...') : t.describeDrawing}
                   value={chatInput}
                   disabled={loading}
                   onChange={e => setChatInput(e.target.value)}
