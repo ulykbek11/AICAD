@@ -1,11 +1,11 @@
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
-from models.schemas import GenerateRequest, GenerateResponse
+from models.schemas import GenerateRequest, GenerateResponse, Room
 from services.llm_service import answer_project_chat, detect_intent, generate_room_graph_pkl
 from services.router_agent import classify_request
 # from services.floorplan_gan_service import generate_room_bboxes
 # from services.layout_service import layout_rooms, layout_two_floors
-from services.topology_agent import generate_topology
-from services.layout_algorithm import layout_by_topology
+from services.topology_agent import classify_rooms, assign_floors
+from services.layout_algorithm import layout_by_topology, place_rooms_by_zone
 from services.symbol_service import enrich_with_symbols
 from services.element_generator import generate_elements
 from services.dxf_service import generate_dxf
@@ -13,6 +13,7 @@ import pickle
 import json
 import logging
 import traceback
+import math
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -35,6 +36,26 @@ def _rooms_with_coords_to_bboxes(rooms_with_coords):
         }
         for r in rooms_with_coords
     ]
+
+
+def _dicts_to_rooms(room_dicts: list) -> list:
+    """Convert raw LLM dicts to Room Pydantic objects safely."""
+    rooms = []
+    for i, d in enumerate(room_dicts):
+        if isinstance(d, Room):
+            rooms.append(d)
+            continue
+        try:
+            rooms.append(Room(
+                id=str(d.get("id") or f"r{i+1}"),
+                type=str(d.get("type") or "living_room"),
+                area_m2=float(d.get("area_m2") or d.get("area") or 12.0),
+                min_width=float(d.get("min_width") or 2.4),
+                adjacent_to=d.get("adjacent_to") or [],
+            ))
+        except Exception as e:
+            logger.warning(f"Skipping malformed room dict {d}: {e}")
+    return rooms
 
 
 @router.post("/chat", response_model=GenerateResponse)
@@ -74,25 +95,49 @@ def chat_generate(request: GenerateRequest):
         logger.info("Шаг 2: Запрос к LLM и получение room_graph PKL...")
         room_graph_pkl = generate_room_graph_pkl(request.prompt)
         room_graph = pickle.loads(room_graph_pkl)
-        rooms = room_graph.get("rooms", [])
-        logger.info(f"LLM ответ получен. Комнаты: {len(rooms)}")
+        
+        if "question" in room_graph:
+            return GenerateResponse(
+                job_id="",
+                elements=[],
+                download_url="",
+                rooms_count=0,
+                total_area=0,
+                message=room_graph["question"],
+                layers_used=[],
+                engine_used="",
+            )
+
+        raw_rooms = room_graph.get("rooms", [])
+        rooms = _dicts_to_rooms(raw_rooms)
+        logger.info(f"LLM ответ получен. Комнат: {len(rooms)}")
 
         # Шаг 3 — НОВАЯ СИСТЕМА
         logger.info("Генерирую топологию...")
-        topology = generate_topology(rooms)
-        logger.info(f"Топология: {topology}")
 
         shape_val = room_graph.get("shape", "rectangular")
-        if route.get("floors", 1) == 2:
-            # Двухэтажный — разбить на этажи
-            rooms_with_coords = layout_two_floors_topology(
-                rooms, topology, shape=shape_val
+        num_floors = int(room_graph.get("num_floors") or route.get("floors") or 1)
+
+        classified = classify_rooms(rooms)
+        floors = assign_floors(classified, num_floors)
+
+        # Оценка размеров здания
+        total_area = float(room_graph.get("total_area_m2") or 100)
+        building_w = math.sqrt(total_area * 1.5)
+        building_h = math.sqrt(total_area / 1.5)
+
+        all_rooms = []
+        for floor_num, floor_rooms in floors.items():
+            placed = place_rooms_by_zone(
+                floor_rooms=floor_rooms,
+                building_w=building_w,
+                building_h=building_h,
+                shape=shape_val,
+                num_floors=num_floors,
             )
-        else:
-            # Один этаж — новый алгоритм
-            rooms_with_coords = layout_by_topology(
-                rooms, topology, shape=shape_val
-            )
+            all_rooms.extend(placed)
+
+        rooms_with_coords = all_rooms
 
         logger.info(f"Расставлено комнат: {len(rooms_with_coords)}")
 
@@ -180,20 +225,43 @@ async def websocket_generate(websocket: WebSocket, session_id: str):
         room_graph_pkl = await run_in_threadpool(generate_room_graph_pkl, prompt)
         room_graph = pickle.loads(room_graph_pkl)
 
+        if "question" in room_graph:
+            await websocket.send_json({
+                "stage": "done",
+                "progress": 100,
+                "message": room_graph["question"],
+                "rooms_count": 0,
+                "total_area": 0,
+            })
+            return
+
         # Layout
         await websocket.send_json(
             {"stage": "layout", "progress": 40, "message": "Генерирую топологию плана..."}
         )
 
-        topology = await run_in_threadpool(generate_topology, room_graph["rooms"])
-
         shape_val = room_graph.get("shape", "rectangular")
-        if route.get("floors", 1) == 2:
-            rooms_with_coords = await run_in_threadpool(layout_two_floors_topology, room_graph["rooms"], topology, shape=shape_val)
-            room_bboxes = await run_in_threadpool(_rooms_with_coords_to_bboxes, rooms_with_coords)
-        else:
-            rooms_with_coords = await run_in_threadpool(layout_by_topology, room_graph["rooms"], topology, shape=shape_val)
-            room_bboxes = await run_in_threadpool(_rooms_with_coords_to_bboxes, rooms_with_coords)
+        num_floors = int(room_graph.get("num_floors") or route.get("floors") or 1)
+
+        raw_rooms = room_graph.get("rooms", [])
+        rooms = await run_in_threadpool(_dicts_to_rooms, raw_rooms)
+        classified = await run_in_threadpool(classify_rooms, rooms)
+        floors = await run_in_threadpool(assign_floors, classified, num_floors)
+
+        total_area = float(room_graph.get("total_area_m2") or 100)
+        building_w = math.sqrt(total_area * 1.5)
+        building_h = math.sqrt(total_area / 1.5)
+
+        all_rooms = []
+        for floor_num, floor_rooms in floors.items():
+            placed = await run_in_threadpool(
+                place_rooms_by_zone,
+                floor_rooms, building_w, building_h, shape_val, num_floors
+            )
+            all_rooms.extend(placed)
+
+        rooms_with_coords = all_rooms
+        room_bboxes = await run_in_threadpool(_rooms_with_coords_to_bboxes, rooms_with_coords)
 
         await websocket.send_json(
             {"stage": "symbols", "progress": 60, "message": "Symbol Service: добавляю мебель..."}

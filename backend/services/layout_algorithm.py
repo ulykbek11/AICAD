@@ -9,6 +9,125 @@ from models.schemas import RoomWithCoords
 
 logger = logging.getLogger(__name__)
 
+SHAPE_TEMPLATES = { 
+    "rectangular": { 
+        "public":      {"x_frac": (0.00, 0.55), "y_frac": (0.10, 1.0)}, 
+        "service":     {"x_frac": (0.00, 0.45), "y_frac": (0.00, 0.45)}, 
+        "private":     {"x_frac": (0.55, 1.00), "y_frac": (0.00, 1.0)}, 
+        "circulation": {"x_frac": (0.42, 0.58), "y_frac": (0.00, 1.0)}, 
+    }, 
+    "l_shape": { 
+        "public":      {"x_frac": (0.00, 0.65), "y_frac": (0.00, 1.0)}, 
+        "service":     {"x_frac": (0.00, 0.35), "y_frac": (0.50, 1.0)}, 
+        "private":     {"x_frac": (0.65, 1.00), "y_frac": (0.00, 0.60)}, 
+        "circulation": {"x_frac": (0.55, 0.65), "y_frac": (0.00, 0.60)}, 
+    }, 
+    "u_shape": { 
+        "public":      {"x_frac": (0.20, 0.80), "y_frac": (0.00, 0.50)}, 
+        "service":     {"x_frac": (0.00, 0.20), "y_frac": (0.00, 1.00)}, 
+        "private":     {"x_frac": (0.80, 1.00), "y_frac": (0.00, 1.00)}, 
+        "circulation": {"x_frac": (0.40, 0.60), "y_frac": (0.40, 0.60)}, 
+    }, 
+} 
+
+def get_zone_envelope( 
+    building_w: float, building_h: float, 
+    zone: str, shape: str 
+) -> tuple[float, float, float, float]: 
+    """Возвращает (x, y, w, h) прямоугольника зоны.""" 
+    template = SHAPE_TEMPLATES.get(shape, SHAPE_TEMPLATES["rectangular"]) 
+    fracs = template.get(zone, {"x_frac": (0.0, 1.0), "y_frac": (0.0, 1.0)}) 
+    x = building_w * fracs["x_frac"][0] 
+    y = building_h * fracs["y_frac"][0] 
+    w = building_w * (fracs["x_frac"][1] - fracs["x_frac"][0]) 
+    h = building_h * (fracs["y_frac"][1] - fracs["y_frac"][0]) 
+    return x, y, w, h 
+
+def place_staircase( 
+    building_w: float, building_h: float 
+) -> "RoomWithCoords": 
+    """ 
+    Лестница — всегда в центре плана. 
+    CRITICAL: позиция одинакова на всех этажах! 
+    """ 
+    stair_w, stair_h = 3.0, 3.0 
+    return RoomWithCoords( 
+        id="staircase_auto",
+        type="staircase", 
+        x=round((building_w / 2) - (stair_w / 2), 2), 
+        y=0.5, 
+        width=stair_w, 
+        height=stair_h, 
+        label="Лестница",
+        fixed=True, 
+        zone="circulation", 
+    ) 
+
+def place_rooms_by_zone( 
+    floor_rooms: list, 
+    building_w: float, 
+    building_h: float, 
+    shape: str = "rectangular", 
+    num_floors: int = 1, 
+) -> list: 
+    """ 
+    Зонированный layout: запускает старый layout_by_topology 
+    отдельно для каждой функциональной зоны. 
+    """ 
+    from services.topology_agent import ( 
+        ZONE_MAP, ensure_accessibility, enforce_minimum_dimensions 
+    ) 
+
+    result = [] 
+
+    # 1. Лестница (если многоэтажный) 
+    staircase = None 
+    if num_floors > 1: 
+        staircase = place_staircase(building_w, building_h) 
+        result.append(staircase) 
+
+    # 2. Группируем по зонам 
+    zones: dict[str, list] = { 
+        "public": [], "service": [], "private": [], "circulation": [] 
+    } 
+    for room in floor_rooms: 
+        if hasattr(room, "fixed") and room.fixed: 
+            continue  # лестница уже добавлена 
+        zone = ZONE_MAP.get(room.type, {}).get("zone", "public") 
+        zones[zone].append(room) 
+
+    # 3. Для каждой зоны — свой прямоугольник и свой treemap 
+    corridor_placed = None 
+    for zone_name, rooms in zones.items(): 
+        if not rooms: 
+            continue 
+
+        zx, zy, zw, zh = get_zone_envelope(building_w, building_h, zone_name, shape) 
+
+        # Вызываем СУЩЕСТВУЮЩИЙ алгоритм 
+        # Передаём ему смещения
+        placed = layout_by_topology( 
+            rooms=rooms, 
+            topology={},
+            offset_x=zx,
+            offset_y=zy,
+            shape=shape
+        ) 
+        result.extend(placed) 
+
+        # Запоминаем коридор для проверки достижимости 
+        for r in placed: 
+            if r.type in ("corridor", "hallway"): 
+                corridor_placed = r 
+
+    # 4. Применяем минимальные размеры 
+    result = enforce_minimum_dimensions(result) 
+
+    # 5. Проверяем достижимость из коридора 
+    result = ensure_accessibility(result, corridor_placed) 
+
+    return result 
+
 # Минимальные габариты для помещений (согласно Своду Правил)
 MIN_DIMENSIONS = {
     "bedroom": {"w": 2.4, "h": 2.4},

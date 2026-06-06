@@ -1770,41 +1770,11 @@ export default function App() {
     }
   };
 
-  const sendMessage = async (prompt, isFinalDirect = false) => {
-    if (wizardState.step !== -1 && !isFinalDirect) {
-      handleWizardAnswer(prompt);
-      return;
-    }
-
-    if (!isFinalDirect) {
-      const isGen = checkIsGenerationPrompt(prompt);
-      if (isGen) {
-        setWizardState({
-          step: 0,
-          answers: { initialPrompt: prompt }
-        });
-        setAppState(prev => ({
-          ...prev,
-          chatMessages: [
-            ...prev.chatMessages,
-            { role: 'user', text: prompt },
-            {
-              role: 'assistant',
-              text: WIZARD_QUESTIONS[0].text,
-              options: WIZARD_QUESTIONS[0].options
-            }
-          ]
-        }));
-        return;
-      }
-    }
-
+  const sendMessage = async (prompt) => {
     try {
       setLoading(true);
       setDownloadUrl('');
-      if (!isFinalDirect) {
-        addMessage('user', prompt);
-      }
+      addMessage('user', prompt);
       addMessage('assistant', t.analyzingRequest);
       updateProgress(10, t.analyzing);
       logCmd("AI_REQUEST");
@@ -1978,7 +1948,7 @@ export default function App() {
       const isSelected = selectedElements.includes(el.id);
       const strokeWidth = layer.lw || getLineweight(el.layer) / zoom;
       const strokeColor = el.color || '#ffffff';
-      const stroke = isSelected ? '#4a9eff' : strokeColor;
+      const stroke = isSelected ? 'var(--lime)' : strokeColor;
 
       let shape = null;
 
@@ -2273,13 +2243,14 @@ export default function App() {
 
   // ──────────────────────────── RENDER ────────────────────────────
   return (
-    <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', background: '#0a0a16', color: '#d0d8e8', fontSize: '13px', fontFamily: "'Inter', sans-serif", userSelect: 'none' }}>
+    <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', background: 'var(--bg-0)', color: 'var(--text-primary)', fontSize: '13px', fontFamily: "'Inter', sans-serif", userSelect: 'none' }}>
 
       {/* ═══ TITLE BAR ═══ */}
-      <div style={{ height: 32, background: '#12121f', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 12px', fontSize: 12, flexShrink: 0, borderBottom: '1px solid #1e2a3a' }}>
+      <div style={{ height: 32, background: 'var(--bg-1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 12px', fontSize: 12, flexShrink: 0, borderBottom: '1px solid var(--border-default)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <i className="fa-brands fa-codepen" style={{ color: '#4a9eff' }}></i>
-          <span style={{ fontWeight: 600, letterSpacing: '0.5px', color: '#c0d0e0' }}>AICAD — Drawing1.dwg</span>
+          <i className="fa-brands fa-codepen" style={{ color: 'var(--lime)' }}></i>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--lime)', boxShadow: '0 0 6px var(--lime)', display: 'inline-block' }}></span>
+          <span style={{ fontWeight: 700, letterSpacing: '1px', color: 'var(--text-primary)', fontSize: 12 }}>AICAD <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>— Drawing1.dwg</span></span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: '#6070A0' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -2325,7 +2296,7 @@ export default function App() {
       </div>
 
       {/* ═══ TAB BAR ═══ */}
-      <div style={{ height: 34, background: '#0e1220', display: 'flex', alignItems: 'flex-end', padding: '0 8px', flexShrink: 0, borderBottom: '1px solid #1e2a3a', gap: 2 }}>
+      <div style={{ height: 34, background: 'var(--bg-1)', display: 'flex', alignItems: 'flex-end', padding: '0 8px', flexShrink: 0, borderBottom: '1px solid var(--border-default)', gap: 2 }}>
         {tabDefs.map((tab) => (
           <div
             key={tab.key}
@@ -2337,19 +2308,19 @@ export default function App() {
               fontSize: 11,
               fontWeight: activeTab === tab.key ? 700 : 500,
               letterSpacing: '0.8px',
-              color: activeTab === tab.key ? '#ffffff' : '#6878A0',
-              background: activeTab === tab.key ? '#1a2235' : 'transparent',
-              borderTop: activeTab === tab.key ? '2px solid #4a9eff' : '2px solid transparent',
-              borderLeft: activeTab === tab.key ? '1px solid #1e2a3a' : '1px solid transparent',
-              borderRight: activeTab === tab.key ? '1px solid #1e2a3a' : '1px solid transparent',
-              borderBottom: activeTab === tab.key ? '1px solid #1a2235' : 'none',
+              color: activeTab === tab.key ? 'var(--lime)' : 'var(--text-secondary)',
+              background: activeTab === tab.key ? 'var(--bg-2)' : 'transparent',
+              borderTop: activeTab === tab.key ? '2px solid var(--lime)' : '2px solid transparent',
+              borderLeft: activeTab === tab.key ? '1px solid var(--border-default)' : '1px solid transparent',
+              borderRight: activeTab === tab.key ? '1px solid var(--border-default)' : '1px solid transparent',
+              borderBottom: activeTab === tab.key ? `1px solid var(--bg-2)` : 'none',
               marginBottom: activeTab === tab.key ? -1 : 0,
               transition: 'all 0.15s',
               position: 'relative',
               zIndex: activeTab === tab.key ? 2 : 1,
             }}
-            onMouseEnter={e => { if (activeTab !== tab.key) e.currentTarget.style.color = '#a0b0d0'; }}
-            onMouseLeave={e => { if (activeTab !== tab.key) e.currentTarget.style.color = '#6878A0'; }}
+            onMouseEnter={e => { if (activeTab !== tab.key) e.currentTarget.style.color = 'var(--text-primary)'; }}
+            onMouseLeave={e => { if (activeTab !== tab.key) e.currentTarget.style.color = 'var(--text-secondary)'; }}
           >
             {tab.label}
           </div>
@@ -2357,23 +2328,23 @@ export default function App() {
       </div>
 
       {/* ═══ RIBBON TOOLBAR ═══ */}
-      <div style={{ height: 78, background: '#131a28', display: 'flex', alignItems: 'stretch', borderBottom: '1px solid #1e2a3a', flexShrink: 0, overflow: 'hidden', position: 'relative', zIndex: 10 }}>
+      <div style={{ height: 78, background: 'var(--bg-1)', display: 'flex', alignItems: 'stretch', borderBottom: '1px solid var(--border-default)', flexShrink: 0, overflow: 'hidden', position: 'relative', zIndex: 10 }}>
 
         {activeTab === 'ГЛАВНАЯ' && (
           <>
             {/* Рисование */}
-            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderRight: '1px solid #1e2a3a', padding: '4px 8px', minWidth: 260 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderRight: '1px solid var(--border-default)', padding: '4px 8px', minWidth: 260 }}>
               <div style={{ display: 'flex', gap: 2, paddingTop: 2, justifyContent: 'center' }}>
                 <div className={`tool-btn ${appState.activeTool === 'line' ? 'active' : ''}`} onClick={() => setTool('line', 'LINE')} title={`${t.toolLine} [L]`}><i className="fa-solid fa-minus"></i><span>{t.toolLine}</span></div>
                 <div className={`tool-btn ${appState.activeTool === 'circle' ? 'active' : ''}`} onClick={() => setTool('circle', 'CIRCLE')} title={`${t.toolCircle} [C]`}><i className="fa-regular fa-circle"></i><span>{t.toolCircle}</span></div>
                 <div className={`tool-btn ${appState.activeTool === 'rect' ? 'active' : ''}`} onClick={() => setTool('rect', 'RECT')} title={`${t.toolRect} [R]`}><i className="fa-regular fa-square"></i><span>{t.toolRectShort}</span></div>
                 <div className={`tool-btn ${appState.activeTool === 'arc' ? 'active' : ''}`} onClick={() => setTool('arc', 'ARC')} title={`${t.toolArc} [A]`}><i className="fa-solid fa-bezier-curve"></i><span>{t.toolArc}</span></div>
               </div>
-              <div style={{ textAlign: 'center', fontSize: 10, color: '#5568A0', paddingBottom: 2, fontWeight: 500 }}>{t.tabDraw}</div>
+              <div style={{ textAlign: 'center', fontSize: 10, color: 'var(--text-muted)', paddingBottom: 2, fontWeight: 600, letterSpacing: '0.5px' }}>{t.tabDraw}</div>
             </div>
 
             {/* Редактирование */}
-            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderRight: '1px solid #1e2a3a', padding: '4px 8px', minWidth: 310 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderRight: '1px solid var(--border-default)', padding: '4px 8px', minWidth: 310 }}>
               <div style={{ display: 'flex', gap: 2, paddingTop: 2, justifyContent: 'center' }}>
                 <div className={`tool-btn ${appState.activeTool === 'move' ? 'active' : ''}`} onClick={() => setTool('move', 'MOVE')} title={`${t.toolMove} [M]`}><i className="fa-solid fa-arrows-up-down-left-right"></i><span>{t.toolMoveShort}</span></div>
                 <div className={`tool-btn ${appState.activeTool === 'copy' ? 'active' : ''}`} onClick={() => setTool('copy', 'COPY')} title={t.toolCopy}><i className="fa-regular fa-copy"></i><span>{t.toolCopyShort}</span></div>
@@ -2381,58 +2352,59 @@ export default function App() {
                 <div className={`tool-btn ${appState.activeTool === 'scale' ? 'active' : ''}`} onClick={() => setTool('scale', 'SCALE')} title={t.toolScale}><i className="fa-solid fa-maximize"></i><span>{t.toolScale}</span></div>
                 <div className={`tool-btn ${appState.activeTool === 'trim' ? 'active' : ''}`} onClick={() => setTool('trim', 'TRIM')} title={t.toolTrim}><i className="fa-solid fa-scissors"></i><span>{t.toolTrim}</span></div>
               </div>
-              <div style={{ textAlign: 'center', fontSize: 10, color: '#5568A0', paddingBottom: 2, fontWeight: 500 }}>{t.tabEdit}</div>
+              <div style={{ textAlign: 'center', fontSize: 10, color: 'var(--text-muted)', paddingBottom: 2, fontWeight: 600, letterSpacing: '0.5px' }}>{t.tabEdit}</div>
             </div>
           </>
         )}
 
         {activeTab === 'ВСТАВКА' && (
-          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderRight: '1px solid #1e2a3a', padding: '4px 8px', minWidth: 260 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderRight: '1px solid var(--border-default)', padding: '4px 8px', minWidth: 260 }}>
             <div style={{ display: 'flex', gap: 2, paddingTop: 2, justifyContent: 'center' }}>
               <div className="tool-btn" onClick={() => executeAction('block', 'INSERT')}><i className="fa-solid fa-shapes"></i><span>{t.toolBlock}</span></div>
               <div className="tool-btn" onClick={() => executeAction('image', 'IMAGE')}><i className="fa-regular fa-image"></i><span>{t.toolImageShort}</span></div>
               <div className="tool-btn" onClick={() => executeAction('pdfattach', 'PDFATTACH')}><i className="fa-regular fa-file-pdf"></i><span>PDF</span></div>
             </div>
-            <div style={{ textAlign: 'center', fontSize: 10, color: '#5568A0', paddingBottom: 2, fontWeight: 500 }}>{t.tabInsert}</div>
+            <div style={{ textAlign: 'center', fontSize: 10, color: 'var(--text-muted)', paddingBottom: 2, fontWeight: 600, letterSpacing: '0.5px' }}>{t.tabInsert}</div>
           </div>
         )}
 
         {activeTab === 'АННОТАЦИИ' && (
-          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderRight: '1px solid #1e2a3a', padding: '4px 8px', minWidth: 280 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderRight: '1px solid var(--border-default)', padding: '4px 8px', minWidth: 280 }}>
             <div style={{ display: 'flex', gap: 2, paddingTop: 2, justifyContent: 'center' }}>
               <div className={`tool-btn ${appState.activeTool === 'dim' ? 'active' : ''}`} onClick={() => setTool('dim', 'DIMALIGNED')}><i className="fa-solid fa-arrows-left-right-to-line"></i><span>{t.toolSize}</span></div>
               <div className={`tool-btn ${appState.activeTool === 'text' ? 'active' : ''}`} onClick={() => setTool('text', 'MTEXT')}><i className="fa-solid fa-font"></i><span>{t.toolText}</span></div>
               <div className="tool-btn" onClick={() => executeAction('leader', 'MLEADER')}><i className="fa-solid fa-arrow-right"></i><span>{t.toolLeader}</span></div>
               <div className="tool-btn" onClick={() => executeAction('table', 'TABLE')}><i className="fa-solid fa-table"></i><span>{t.toolTable}</span></div>
             </div>
-            <div style={{ textAlign: 'center', fontSize: 10, color: '#5568A0', paddingBottom: 2, fontWeight: 500 }}>{t.tabAnnotations}</div>
+            <div style={{ textAlign: 'center', fontSize: 10, color: 'var(--text-muted)', paddingBottom: 2, fontWeight: 600, letterSpacing: '0.5px' }}>{t.tabAnnotations}</div>
           </div>
         )}
 
         {activeTab === 'ВЫВОД' && (
-          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderRight: '1px solid #1e2a3a', padding: '4px 8px', minWidth: 220 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderRight: '1px solid var(--border-default)', padding: '4px 8px', minWidth: 220 }}>
             <div style={{ display: 'flex', gap: 2, paddingTop: 2, justifyContent: 'center' }}>
               <div className="tool-btn" onClick={() => executeAction('print', 'PLOT')}><i className="fa-solid fa-print"></i><span>{t.toolPrint}</span></div>
               <div className="tool-btn" onClick={() => executeAction('pdf', 'EXPORTPDF')}><i className="fa-solid fa-file-export"></i><span>PDF</span></div>
             </div>
-            <div style={{ textAlign: 'center', fontSize: 10, color: '#5568A0', paddingBottom: 2, fontWeight: 500 }}>{t.tabExport}</div>
+            <div style={{ textAlign: 'center', fontSize: 10, color: 'var(--text-muted)', paddingBottom: 2, fontWeight: 600, letterSpacing: '0.5px' }}>{t.tabExport}</div>
           </div>
         )}
 
         <div style={{ flex: 1 }}></div>
 
         {/* ═══ HORIZONTAL LAYER MANAGER ═══ */}
-        <div style={{ display: 'flex', alignItems: 'center', padding: '0 16px', borderLeft: '1px solid #1e2a3a', gap: 12, minWidth: 350, overflowX: 'auto' }} className="no-scroll">
+        <div style={{ display: 'flex', alignItems: 'center', padding: '0 16px', borderLeft: '1px solid var(--border-default)', gap: 12, minWidth: 350, overflowX: 'auto' }} className="no-scroll">
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%', justifyContent: 'center', width: '100%' }}>
-               <div style={{ fontSize: 10, color: '#5568A0', fontWeight: 700, textTransform: 'uppercase', marginBottom: 4, display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+               <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4, display: 'flex', justifyContent: 'space-between', width: '100%' }}>
                  {t.layers}
                  {appState.selectedElements.length > 0 && (
-                  <span style={{ color: '#4a9eff', cursor: 'pointer', textTransform: 'none' }} onClick={() => setIsLayerModalOpen(true)}>{t.assignLayerToSelection} ({appState.selectedElements.length})</span>
+                  <span style={{ color: 'var(--lime)', cursor: 'pointer', textTransform: 'none' }} onClick={() => setIsLayerModalOpen(true)}>{t.assignLayerToSelection} ({appState.selectedElements.length})</span>
                  )}
                </div>
                <div style={{ display: 'flex', gap: 6, minWidth: 'min-content' }}>
                  {hasAssignedLayers ? visibleLayersInPanel.map(layer => {
                     const isActive = appState.activeLayer === layer.name;
+                    const isWalls = layer.name === 'Стены';
                     return (
                       <div
                         key={layer.name}
@@ -2441,27 +2413,32 @@ export default function App() {
                           display: 'flex', alignItems: 'center', padding: '4px 8px', cursor: 'pointer',
                           fontSize: 12, fontWeight: isActive ? 600 : 400,
                           borderRadius: '4px',
-                          background: isActive ? 'rgba(74,158,255,0.15)' : '#1a2030',
-                          border: isActive ? '1px solid #4a9eff' : '1px solid #2e3e54',
-                          color: isActive ? '#e0e8f0' : '#8898b0',
-                          whiteSpace: 'nowrap'
+                          background: isActive ? 'var(--lime-glow)' : 'var(--bg-2)',
+                          border: isActive ? '1px solid var(--lime-border)' : '1px solid var(--border-default)',
+                          color: isActive ? 'var(--lime)' : 'var(--text-secondary)',
+                          whiteSpace: 'nowrap',
+                          transition: 'all 0.15s',
                         }}
                       >
+                        <span style={{ width: 7, height: 7, borderRadius: '50%', marginRight: 6, flexShrink: 0,
+                          background: isWalls ? 'var(--lime)' : (isActive ? 'var(--lime)' : 'var(--text-muted)'),
+                          boxShadow: isWalls ? '0 0 4px var(--lime)' : 'none',
+                        }} />
                         <i
                           className={`fa-regular ${layer.visible ? 'fa-eye' : 'fa-eye-slash'}`}
-                          style={{ color: layer.visible ? '#7a9eff' : '#5568A0', fontSize: 12, marginRight: 6 }}
+                          style={{ color: layer.visible ? 'var(--lime)' : 'var(--text-muted)', fontSize: 11, marginRight: 5 }}
                           onClick={(e) => { e.stopPropagation(); toggleLayerAttr(layer.name, 'visible'); }}
                         ></i>
                         <i
                           className={`fa-solid ${layer.locked ? 'fa-lock' : 'fa-lock-open'}`}
-                          style={{ color: layer.locked ? '#e8a040' : '#5568A0', fontSize: 11, marginRight: 6 }}
+                          style={{ color: layer.locked ? '#e8a040' : 'var(--text-muted)', fontSize: 10, marginRight: 5 }}
                           onClick={(e) => { e.stopPropagation(); toggleLayerAttr(layer.name, 'locked'); }}
                         ></i>
-                        {layerLabel(layer.name)} <span style={{ opacity: 0.6, fontSize: 10, marginLeft: 6 }}>({appState.elements.filter(el => el.layer === layer.name).length})</span>
+                        {layerLabel(layer.name)} <span style={{ opacity: 0.5, fontSize: 10, marginLeft: 5 }}>({appState.elements.filter(el => el.layer === layer.name).length})</span>
                       </div>
                     );
                  }) : (
-                    <div style={{ fontSize: 12, color: '#4a5a7a', padding: '4px 8px', background: '#1a2030', borderRadius: 4, border: '1px solid #2e3e54' }}>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '4px 8px', background: 'var(--bg-2)', borderRadius: 4, border: '1px solid var(--border-default)' }}>
                        {t.noLayers}
                     </div>
                  )}
@@ -2471,16 +2448,16 @@ export default function App() {
       </div>
 
       {/* ═══ MAIN AREA (left bar + canvas + right panel) ═══ */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', background: '#080810' }}>
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', background: 'var(--bg-0)' }}>
 
         {/* Left Vertical Toolbar */}
-        <div style={{ width: 42, background: '#111120', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '8px 0', gap: 4, borderRight: '1px solid #1e2a3a', flexShrink: 0, zIndex: 5 }}>
+        <div style={{ width: 42, background: 'var(--bg-1)', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '8px 0', gap: 4, borderRight: '1px solid var(--border-default)', flexShrink: 0, zIndex: 5 }}>
           <div className={`left-btn ${appState.activeTool === 'select' ? 'active' : ''}`} title={t.leftSelect} onClick={() => setTool('select')}><i className="fa-solid fa-arrow-pointer"></i></div>
           <div className={`left-btn ${appState.activeTool === 'pan' ? 'active' : ''}`} title={t.leftPan} onClick={() => setTool('pan')}><i className="fa-solid fa-hand"></i></div>
-          <div style={{ width: 22, height: 1, background: '#1e2a3a', margin: '4px 0' }}></div>
+          <div style={{ width: 22, height: 1, background: 'var(--border-default)', margin: '4px 0' }}></div>
           <div className="left-btn" title={t.leftUndo} onClick={undo}><i className="fa-solid fa-rotate-left"></i></div>
           <div className="left-btn" title={t.leftRedo} onClick={redo}><i className="fa-solid fa-rotate-right"></i></div>
-          <div style={{ width: 22, height: 1, background: '#1e2a3a', margin: '4px 0' }}></div>
+          <div style={{ width: 22, height: 1, background: 'var(--border-default)', margin: '4px 0' }}></div>
           <div className={`left-btn ${appState.activeTool === 'erase' ? 'active' : ''}`} title={t.leftDelete} onClick={() => setTool('erase', 'ERASE')}><i className="fa-solid fa-eraser"></i></div>
         </div>
 
@@ -2497,11 +2474,11 @@ export default function App() {
           >
             <defs>
               <pattern id="smallGrid" width={10 * appState.zoom} height={10 * appState.zoom} patternUnits="userSpaceOnUse" patternTransform={`translate(${appState.panOffset.x}, ${appState.panOffset.y})`}>
-                <path d={`M ${10*appState.zoom} 0 L 0 0 0 ${10*appState.zoom}`} fill="none" stroke="#14142a" strokeWidth="0.5" opacity="0.8" />
+                <path d={`M ${10*appState.zoom} 0 L 0 0 0 ${10*appState.zoom}`} fill="none" stroke="rgba(187, 252, 58, 0.04)" strokeWidth="0.5" />
               </pattern>
               <pattern id="grid" width={100 * appState.zoom} height={100 * appState.zoom} patternUnits="userSpaceOnUse" patternTransform={`translate(${appState.panOffset.x}, ${appState.panOffset.y})`}>
                 <rect width="100%" height="100%" fill="url(#smallGrid)" />
-                <path d={`M ${100*appState.zoom} 0 L 0 0 0 ${100*appState.zoom}`} fill="none" stroke="#1e1e38" strokeWidth="1" opacity="1.0" />
+                <path d={`M ${100*appState.zoom} 0 L 0 0 0 ${100*appState.zoom}`} fill="none" stroke="rgba(187, 252, 58, 0.10)" strokeWidth="1" />
               </pattern>
             </defs>
 
@@ -2510,14 +2487,14 @@ export default function App() {
             <g transform={`translate(${appState.panOffset.x}, ${appState.panOffset.y}) scale(${appState.zoom})`}>
               {appState.gridEnabled && (
                 <g pointerEvents="none">
-                  <line x1="-10000" y1="0" x2="10000" y2="0" stroke="#ff4444" strokeWidth={1/appState.zoom} opacity="0.3" />
-                  <line x1="0" y1="-10000" x2="0" y2="10000" stroke="#4444ff" strokeWidth={1/appState.zoom} opacity="0.3" />
+                  <line x1="-10000" y1="0" x2="10000" y2="0" stroke="rgba(187, 252, 58, 0.20)" strokeWidth={1/appState.zoom} />
+                  <line x1="0" y1="-10000" x2="0" y2="10000" stroke="rgba(187, 252, 58, 0.20)" strokeWidth={1/appState.zoom} />
                 </g>
               )}
               {renderElements()}
               {renderDraft()}
               {appState.isDrawing && draftRef.current.tempPoint && appState.activeTool !== 'box_select' && (
-                <circle cx={draftRef.current.tempPoint.x} cy={draftRef.current.tempPoint.y} r={3/appState.zoom} fill="none" stroke="#4a9eff" strokeWidth={1.5/appState.zoom} pointerEvents="none"/>
+                <circle cx={draftRef.current.tempPoint.x} cy={draftRef.current.tempPoint.y} r={3/appState.zoom} fill="none" stroke="var(--lime)" strokeWidth={1.5/appState.zoom} pointerEvents="none"/>
               )}
             </g>
           </svg>
@@ -2586,18 +2563,18 @@ export default function App() {
         </div>
 
         {/* ═══ RIGHT PANEL ═══ */}
-        <div style={{ width: rightPanelWidth, display: 'flex', flexDirection: 'column', borderLeft: '1px solid #1e2a3a', background: '#10101e', flexShrink: 0, zIndex: 5, position: 'relative', boxShadow: '-4px 0 20px rgba(0,0,0,0.4)' }}>
+        <div style={{ width: rightPanelWidth, display: 'flex', flexDirection: 'column', borderLeft: '1px solid var(--border-default)', background: 'var(--bg-1)', flexShrink: 0, zIndex: 5, position: 'relative', boxShadow: '-4px 0 24px rgba(0,0,0,0.5)' }}>
           {/* Resize handle */}
           <div className={`resize-h ${resizing === 'right' ? 'active' : ''}`} onMouseDown={() => setResizing('right')}></div>
 
           {/* AI CHAT */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, background: '#0c0c1a' }}>
-            <div style={{ height: 40, display: 'flex', alignItems: 'center', padding: '0 16px', borderBottom: '1px solid #1e2a3a', background: '#121226', gap: 10 }}>
-              <i className="fa-solid fa-robot" style={{ color: '#4a9eff', fontSize: 15 }}></i>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, background: 'var(--bg-0)' }}>
+            <div style={{ height: 40, display: 'flex', alignItems: 'center', padding: '0 16px', borderBottom: '1px solid var(--border-lime)', background: 'var(--bg-1)', gap: 10 }}>
+              <i className="fa-solid fa-robot" style={{ color: 'var(--lime)', fontSize: 15 }}></i>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#e0e8f0', lineHeight: 1.2 }}>{t.assistantTitle}</div>
-                <div style={{ fontSize: 10, color: '#4ade80', display: 'flex', alignItems: 'center', gap: 4, lineHeight: 1.2, marginTop: 1 }}>
-                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#4ade80', display: 'inline-block' }}></span>Online
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.2 }}>{t.assistantTitle}</div>
+                <div style={{ fontSize: 10, color: 'var(--lime)', display: 'flex', alignItems: 'center', gap: 4, lineHeight: 1.2, marginTop: 1 }}>
+                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--lime)', boxShadow: '0 0 4px var(--lime)', display: 'inline-block', animation: 'pulse 2s infinite' }}></span>Online
                 </div>
               </div>
             </div>
@@ -2606,13 +2583,13 @@ export default function App() {
               {appState.chatMessages.map((msg, i) => (
                 <div key={i} style={{ display: 'flex', gap: 8, flexDirection: msg.role === 'user' ? 'row-reverse' : 'row' }}>
                   {msg.role === 'assistant' && (
-                    <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'linear-gradient(135deg, #4a9eff, #3b82f6)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0, fontWeight: 700, fontSize: 10 }}>AI</div>
+                    <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--lime)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--bg-0)', flexShrink: 0, fontWeight: 700, fontSize: 10 }}>AI</div>
                   )}
                   <div style={{
                     padding: '10px 14px', fontSize: 13, lineHeight: 1.6, borderRadius: 10, maxWidth: '85%',
                     ...(msg.role === 'assistant'
-                      ? { background: '#161630', border: '1px solid #1e2a3a', color: '#b0b8d0', borderTopLeftRadius: 2 }
-                      : { background: '#1a2a4a', border: '1px solid #2a4a7a', color: '#d0e0f0', borderTopRightRadius: 2 }
+                      ? { background: 'var(--bg-3)', border: '1px solid var(--border-lime)', color: 'var(--text-primary)', borderTopLeftRadius: 2 }
+                      : { background: 'var(--lime-glow)', border: '1px solid var(--lime-border)', color: 'var(--lime)', borderTopRightRadius: 2 }
                     )
                   }}>
                     <div>{msg.text}</div>
@@ -2646,14 +2623,14 @@ export default function App() {
               ))}
             </div>
 
-            <div style={{ padding: 12, borderTop: '1px solid #1e2a3a', background: '#0a0a18' }}>
+            <div style={{ padding: 12, borderTop: '1px solid var(--border-default)', background: 'var(--bg-0)' }}>
               {chatProgress.value > 0 && chatProgress.value < 100 && (
                 <div style={{ marginBottom: 8 }}>
-                  <div style={{ fontSize: 11, color: '#8ba0c2', marginBottom: 4 }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>
                     {chatProgress.message || t.generating} ({chatProgress.value}%)
                   </div>
-                  <div style={{ height: 6, borderRadius: 99, background: '#121b2e', overflow: 'hidden' }}>
-                    <div style={{ width: `${chatProgress.value}%`, height: '100%', background: 'linear-gradient(90deg, #3b82f6, #4a9eff)' }} />
+                  <div style={{ height: 4, borderRadius: 99, background: 'var(--bg-2)', overflow: 'hidden' }}>
+                    <div style={{ width: `${chatProgress.value}%`, height: '100%', background: 'linear-gradient(90deg, var(--lime-dim), var(--lime))', transition: 'width 0.3s ease' }} />
                   </div>
                 </div>
               )}
@@ -2665,24 +2642,27 @@ export default function App() {
                     style={{
                       display: "block",
                       marginTop: "8px",
-                      padding: "6px 12px",
-                      background: "#1a3a8a",
-                      color: "white",
-                      borderRadius: "4px",
+                      padding: "7px 14px",
+                      background: "var(--lime)",
+                      color: "var(--bg-0)",
+                      borderRadius: "6px",
                       textDecoration: "none",
-                      fontSize: "12px"
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      textAlign: 'center',
+                      letterSpacing: '0.3px',
                     }}
                   >
-                    {t.downloadDxf}
+                    <i className="fa-solid fa-download" style={{ marginRight: 6 }}></i>{t.downloadDxf}
                   </a>
                 </div>
               )}
-              <div style={{ display: 'flex', background: '#0e1020', border: '1px solid #1e2a3a', borderRadius: 10, overflow: 'hidden' }}
-                onFocus={e => e.currentTarget.style.borderColor = '#4a9eff'}
-                onBlur={e => e.currentTarget.style.borderColor = '#1e2a3a'}
+              <div style={{ display: 'flex', background: 'var(--bg-2)', border: '1px solid var(--border-default)', borderRadius: 10, overflow: 'hidden', transition: 'border-color 0.15s' }}
+                onFocus={e => e.currentTarget.style.borderColor = 'var(--lime-border)'}
+                onBlur={e => e.currentTarget.style.borderColor = 'var(--border-default)'}
               >
                 <textarea
-                  style={{ background: 'transparent', border: 'none', outline: 'none', width: '100%', padding: '10px 12px', color: '#d0d8e8', resize: 'none', fontSize: 13, fontFamily: "'Inter', sans-serif", lineHeight: 1.5 }}
+                  style={{ background: 'transparent', border: 'none', outline: 'none', width: '100%', padding: '10px 12px', color: 'var(--text-primary)', resize: 'none', fontSize: 13, fontFamily: "'Inter', sans-serif", lineHeight: 1.5 }}
                   rows="2"
                   placeholder={wizardState.step !== -1 ? (language === 'en' ? 'Or enter custom answer...' : 'Или введите свой вариант ответа...') : t.describeDrawing}
                   value={chatInput}
@@ -2691,11 +2671,11 @@ export default function App() {
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleChatEnter(); } }}
                 />
                 <button
-                  style={{ padding: '0 14px', background: 'transparent', border: 'none', color: '#4a9eff', cursor: 'pointer', fontSize: 15 }}
+                  style={{ padding: '0 16px', background: 'var(--lime)', border: 'none', color: '#0D0F0D', cursor: 'pointer', fontSize: 15, fontWeight: 700, transition: 'opacity 0.15s' }}
                   onClick={handleChatEnter}
                   disabled={loading}
-                  onMouseEnter={e => e.currentTarget.style.color = '#fff'}
-                  onMouseLeave={e => e.currentTarget.style.color = '#4a9eff'}
+                  onMouseEnter={e => e.currentTarget.style.opacity = '0.8'}
+                  onMouseLeave={e => e.currentTarget.style.opacity = '1'}
                 >
                   <i className="fa-solid fa-paper-plane"></i>
                 </button>
@@ -2706,19 +2686,19 @@ export default function App() {
       </div>
 
       {/* ═══ COMMAND LINE + STATUS BAR ═══ */}
-      <div style={{ height: bottomPanelHeight, display: 'flex', flexDirection: 'column', borderTop: '1px solid #1e2a3a', flexShrink: 0, zIndex: 20, position: 'relative', background: '#0a0a14' }}>
+      <div style={{ height: bottomPanelHeight, display: 'flex', flexDirection: 'column', borderTop: '1px solid var(--border-default)', flexShrink: 0, zIndex: 20, position: 'relative', background: 'var(--bg-0)' }}>
         {/* Resize handle */}
         <div className={`resize-v ${resizing === 'bottom' ? 'active' : ''}`} onMouseDown={() => setResizing('bottom')}></div>
 
         {/* Command log */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', padding: '4px 12px', overflowY: 'auto', fontFamily: "'JetBrains Mono', 'Consolas', monospace" }} className="no-scroll">
           {appState.commandLog.map((log, i) => (
-            <div key={i} style={{ fontSize: 12, color: '#5568A0', lineHeight: 1.6 }}>{log}</div>
+            <div key={i} style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>{log}</div>
           ))}
           <div style={{ display: 'flex', alignItems: 'center', marginTop: 2 }}>
-            <span style={{ color: '#4a9eff', marginRight: 8, fontSize: 12, fontWeight: 600 }}>{'>'}</span>
+            <span style={{ color: 'var(--lime)', marginRight: 8, fontSize: 12, fontWeight: 600 }}>{'>'}</span>
             <input
-              style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: '#d0d8e8', fontFamily: "'JetBrains Mono', 'Consolas', monospace", fontSize: 12, caretColor: '#4a9eff' }}
+              style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: 'var(--text-primary)', fontFamily: "'JetBrains Mono', 'Consolas', monospace", fontSize: 12, caretColor: 'var(--lime)' }}
               type="text"
               autoComplete="off"
               placeholder={t.commandPlaceholder}
@@ -2735,7 +2715,7 @@ export default function App() {
         </div>
 
         {/* Status Bar */}
-        <div style={{ height: 24, background: '#060610', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 12px', fontSize: 11, borderTop: '1px solid #12121e', color: '#5568A0', fontFamily: "'Inter', sans-serif", flexShrink: 0 }}>
+        <div style={{ height: 24, background: 'var(--bg-0)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 12px', fontSize: 11, borderTop: '1px solid var(--border-default)', color: 'var(--text-muted)', fontFamily: "'Inter', sans-serif", flexShrink: 0 }}>
           <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
             <span>X: {mousePos.x.toFixed(2)}</span>
             <span>Y: {mousePos.y.toFixed(2)}</span>
@@ -2763,12 +2743,13 @@ export default function App() {
                 onClick={() => setAppState(p => ({ ...p, [item.attr]: !p[item.attr] }))}
                 style={{
                   padding: '2px 8px', borderRadius: 3, cursor: 'pointer', fontSize: 11, fontWeight: 500,
-                  color: item.flag ? '#8cc4ff' : '#3a4060',
-                  background: item.flag ? 'rgba(74,158,255,0.12)' : 'transparent',
+                  color: item.flag ? 'var(--lime)' : '#3a4060',
+                  background: item.flag ? 'var(--lime-glow)' : 'transparent',
+                  border: item.flag ? '1px solid var(--lime-border)' : '1px solid transparent',
                   transition: 'all 0.15s',
                 }}
-                onMouseEnter={e => e.currentTarget.style.background = 'rgba(74,158,255,0.08)'}
-                onMouseLeave={e => e.currentTarget.style.background = item.flag ? 'rgba(74,158,255,0.12)' : 'transparent'}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--lime-glow)'}
+                onMouseLeave={e => e.currentTarget.style.background = item.flag ? 'var(--lime-glow)' : 'transparent'}
               >
                 {item.label}
               </div>

@@ -1,6 +1,12 @@
 from pydantic import BaseModel
 from typing import List, Optional
+from enum import Enum
 
+class ZoneType(str, Enum): 
+    PUBLIC = "public" 
+    SERVICE = "service" 
+    PRIVATE = "private" 
+    CIRCULATION = "circulation" 
 
 class GenerateRequest(BaseModel):
     prompt: str
@@ -13,12 +19,16 @@ class Room(BaseModel):
     area_m2: float
     min_width: float
     adjacent_to: List[str] = []
+    zone: Optional[ZoneType] = None 
+    floor: int = 1 
+    fixed: bool = False
 
 
 class RoomGraph(BaseModel):
     rooms: List[Room]
     total_area_m2: float
     shape: str = "rectangular"
+    num_floors: int = 1
 
 
 class RoomWithCoords(BaseModel):
@@ -30,6 +40,9 @@ class RoomWithCoords(BaseModel):
     height: float
     label: str
     adjacent_to: List[str] = []
+    zone: Optional[ZoneType] = None 
+    floor: int = 1 
+    fixed: bool = False
 
 
 class GenerateResponse(BaseModel):
