@@ -84,7 +84,7 @@ def chat_generate(request: GenerateRequest):
         if intent == "offtopic":
             raise HTTPException(
                 status_code=400,
-                detail="Я отвечаю только по тематике AICAD: CAD-планы, DXF/SVG, слои и генерация.",
+                detail="I only respond to Draftly-related topics: CAD floor plans, DXF/SVG export, layers, and generation.",
             )
         if intent == "chat":
             logger.info("Intent=chat: формирую текстовый ответ по проекту")
@@ -228,7 +228,7 @@ async def websocket_generate(websocket: WebSocket, session_id: str):
                 {
                     "stage": "done",
                     "progress": 100,
-                    "message": "Я работаю по тематике AICAD: CAD-планы, DXF/SVG, слои и инструменты.",
+                    "message": "I only respond to Draftly-related topics: CAD floor plans, DXF/SVG export, layers, and tools.",
                 }
             )
             return

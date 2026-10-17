@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from './contexts/AuthContext';
 import './index.css';
 
 // Helper to generate IDs
@@ -30,7 +32,7 @@ const WIZARD_QUESTIONS = [
   {
     key: 'start',
     text: 'Давайте настроим ваш идеальный дом. Запустим пошаговый опрос или сгенерируем сразу?',
-    options: ['Запустить помощник 📋', 'Сгенерировать сразу ⚡'],
+    options: ['Запустить помощник', 'Сгенерировать сразу'],
   },
   {
     key: 'shape',
@@ -85,6 +87,14 @@ const WIZARD_QUESTIONS = [
 ];
 
 export default function App() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logout();
+    navigate('/');
+  };
+
   const [appState, setAppState] = useState({
     activeTool: 'select',
     activeLayer: 'Стены',
@@ -2250,7 +2260,7 @@ export default function App() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <i className="fa-brands fa-codepen" style={{ color: 'var(--lime)' }}></i>
           <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--lime)', boxShadow: '0 0 6px var(--lime)', display: 'inline-block' }}></span>
-          <span style={{ fontWeight: 700, letterSpacing: '1px', color: 'var(--text-primary)', fontSize: 12 }}>AICAD <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>— Drawing1.dwg</span></span>
+          <span style={{ fontWeight: 700, letterSpacing: '1px', color: 'var(--text-primary)', fontSize: 12 }}>Draftly <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>— Drawing1.dwg</span></span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: '#6070A0' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -2291,7 +2301,25 @@ export default function App() {
               if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
               else document.exitFullscreen();
             }} title={t.fullscreen}></i>
-          <i className="fa-solid fa-xmark" style={{ cursor: 'pointer', fontSize: 14 }} onMouseEnter={e => e.target.style.color = '#ff4a4a'} onMouseLeave={e => e.target.style.color = '#6070A0'}></i>
+          {user && (
+            <span style={{ fontSize: 11, color: 'var(--text-secondary)', marginRight: 8 }}>{user.email}</span>
+          )}
+          <button
+            onClick={handleLogout}
+            style={{
+              background: 'transparent',
+              border: '1px solid #2b3a56',
+              borderRadius: 4,
+              color: '#7c8db8',
+              padding: '2px 8px',
+              fontSize: 11,
+              cursor: 'pointer',
+            }}
+            onMouseEnter={e => { e.target.style.background = '#ff4a4a20'; e.target.style.color = '#ff7a7a'; }}
+            onMouseLeave={e => { e.target.style.background = 'transparent'; e.target.style.color = '#7c8db8'; }}
+          >
+            {language === 'ru' ? 'Выход' : 'Logout'}
+          </button>
         </div>
       </div>
 
