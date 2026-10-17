@@ -1,14 +1,17 @@
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
+from typing import Optional, List
 from models.schemas import GenerateRequest, GenerateResponse, Room
 from services.llm_service import answer_project_chat, detect_intent, generate_room_graph_pkl
 from services.router_agent import classify_request
-# from services.floorplan_gan_service import generate_room_bboxes
-# from services.layout_service import layout_rooms, layout_two_floors
 from services.topology_agent import classify_rooms, assign_floors
 from services.layout_algorithm import layout_by_topology, place_rooms_by_zone
 from services.symbol_service import enrich_with_symbols
 from services.element_generator import generate_elements
 from services.dxf_service import generate_dxf
+from services.electrical_service import generate_electrical_layer
+from services.plumbing_service import generate_plumbing_layer
+from services.layout_validator import validate_layout, ValidationResult
 import pickle
 import json
 import logging
@@ -17,6 +20,17 @@ import math
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
+
+
+class LayerConfig(BaseModel):
+    """Configuration for which layers to include in generation."""
+    walls: bool = True
+    doors: bool = True
+    windows: bool = True
+    furniture: bool = True
+    dimensions: bool = True
+    electrical: bool = False
+    plumbing: bool = False
 
 router = APIRouter()
 
@@ -70,7 +84,7 @@ def chat_generate(request: GenerateRequest):
         if intent == "offtopic":
             raise HTTPException(
                 status_code=400,
-                detail="Я отвечаю только по тематике AICAD: CAD-планы, DXF/SVG, слои и генерация.",
+                detail="I only respond to Draftly-related topics: CAD floor plans, DXF/SVG export, layers, and generation.",
             )
         if intent == "chat":
             logger.info("Intent=chat: формирую текстовый ответ по проекту")
@@ -144,29 +158,50 @@ def chat_generate(request: GenerateRequest):
         # Шаг 4: Конвертация RoomWithCoords -> bbox dicts для symbol/dxf
         room_bboxes = _rooms_with_coords_to_bboxes(rooms_with_coords)
 
-        logger.info("Шаг 5: Symbol service...")
+        # Validate layout
+        logger.info("Step 4b: Validating layout...")
+        validation = validate_layout(room_bboxes)
+        if validation.issues:
+            logger.warning(f"Layout issues: {validation.issues}")
+        if validation.repairs_made:
+            logger.info(f"Layout repairs: {validation.repairs_made}")
+
+        logger.info("Step 5: Symbol service...")
         rooms_with_symbols = enrich_with_symbols(room_bboxes)
-        logger.info(f"Символами обогащено: {len(rooms_with_symbols)}")
+        logger.info(f"Enriched with symbols: {len(rooms_with_symbols)}")
 
-        # Шаг 6: Генерация CAD-элементов (для фронтенда)
-        logger.info("Шаг 6: Element Generator — CAD-примитивы...")
+        # Step 6: Generate CAD elements (for frontend)
+        logger.info("Step 6: Element Generator - CAD primitives...")
         elements = generate_elements(rooms_with_symbols)
-        logger.info(f"Сгенерировано элементов: {len(elements)}")
+        logger.info(f"Generated elements: {len(elements)}")
 
-        # Шаг 7: DXF генерация (для скачивания)
-        logger.info("Шаг 7: DXF генерация...")
-        job_id, filepath = generate_dxf(rooms_with_symbols)
-        logger.info(f"DXF создан: {filepath}")
+        # Step 6b: Add electrical layer (optional)
+        electrical_elements = generate_electrical_layer(rooms_with_symbols)
+        logger.info(f"Generated electrical elements: {len(electrical_elements)}")
 
-        layers_used = list(set(e["layer"] for e in elements))
+        # Step 6c: Add plumbing layer (optional)
+        plumbing_elements = generate_plumbing_layer(rooms_with_symbols)
+        logger.info(f"Generated plumbing elements: {len(plumbing_elements)}")
+
+        # Combine all elements
+        all_elements = elements + electrical_elements + plumbing_elements
+
+        # Step 7: DXF generation (for download)
+        logger.info("Step 7: DXF generation...")
+        job_id, filepath = generate_dxf(rooms_with_symbols, 
+                                        include_electrical=True, 
+                                        include_plumbing=True)
+        logger.info(f"DXF created: {filepath}")
+
+        layers_used = list(set(e["layer"] for e in all_elements))
 
         return GenerateResponse(
             job_id=job_id,
-            elements=elements,
+            elements=all_elements,
             download_url=f"/static/downloads/{job_id}.dxf",
             rooms_count=len(rooms_with_coords),
             total_area=room_graph.get("total_area_m2", 0),
-            message=f"Готово! {len(rooms_with_coords)} комнат",
+            message=f"Done! {len(rooms_with_coords)} rooms",
             layers_used=layers_used,
             engine_used="topology_layout",
         )
@@ -193,7 +228,7 @@ async def websocket_generate(websocket: WebSocket, session_id: str):
                 {
                     "stage": "done",
                     "progress": 100,
-                    "message": "Я работаю по тематике AICAD: CAD-планы, DXF/SVG, слои и инструменты.",
+                    "message": "I only respond to Draftly-related topics: CAD floor plans, DXF/SVG export, layers, and tools.",
                 }
             )
             return

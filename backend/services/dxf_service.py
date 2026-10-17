@@ -10,7 +10,7 @@ from services.symbol_service import draw_symbols
 SCALE = 100.0
 WALL_THICKNESS = 20.0
 
-def setup_layers(doc):
+def setup_layers(doc, include_electrical=False, include_plumbing=False):
     layers = [
         ("Стены", 7, 35),
         ("Двери", 7, 25),
@@ -20,6 +20,13 @@ def setup_layers(doc):
         ("Текст", 7, 13),
         ("Штриховка", 7, 9),
     ]
+    
+    if include_electrical:
+        layers.append(("Electrical", 30, 18))
+    
+    if include_plumbing:
+        layers.append(("Plumbing", 150, 18))
+    
     for name, color, lw in layers:
         if name not in doc.layers:
             doc.layers.add(name, color=color, lineweight=lw)
@@ -202,10 +209,13 @@ ROOM_LABELS = {
     "guest_wc": "Гостевой санузел",
 }
 
-def generate_dxf(rooms_with_symbols: list[dict]) -> tuple[str, str]:
+def generate_dxf(rooms_with_symbols: list[dict], include_electrical: bool = False, include_plumbing: bool = False) -> tuple[str, str]:
+    from services.electrical_service import generate_electrical_layer
+    from services.plumbing_service import generate_plumbing_layer
+    
     doc = ezdxf.new(dxfversion="R2010")
     msp = doc.modelspace()
-    setup_layers(doc)
+    setup_layers(doc, include_electrical, include_plumbing)
 
     all_x = []
     all_y = []
@@ -337,8 +347,65 @@ def generate_dxf(rooms_with_symbols: list[dict]) -> tuple[str, str]:
 
     draw_symbols(msp, rooms_with_symbols, scale=SCALE)
 
+    if include_electrical:
+        _draw_electrical_to_dxf(msp, rooms_with_symbols)
+    
+    if include_plumbing:
+        _draw_plumbing_to_dxf(msp, rooms_with_symbols)
+
     job_id = str(uuid.uuid4())[:8]
     filepath = f"static/downloads/{job_id}.dxf"
     os.makedirs("static/downloads", exist_ok=True)
     doc.saveas(filepath)
     return job_id, filepath
+
+
+def _draw_electrical_to_dxf(msp, rooms_with_symbols):
+    """Draw electrical layer elements to DXF."""
+    from services.electrical_service import generate_electrical_layer
+    
+    elements = generate_electrical_layer(rooms_with_symbols)
+    
+    for elem in elements:
+        layer = "Electrical"
+        color = 30
+        
+        if elem["type"] == "line":
+            pts = elem["points"]
+            msp.add_line(pts[0], pts[1], dxfattribs={"layer": layer, "color": color})
+        elif elem["type"] == "polyline":
+            msp.add_lwpolyline(elem["points"], dxfattribs={"layer": layer, "color": color})
+        elif elem["type"] == "circle":
+            msp.add_circle(elem["center"], elem["radius"], dxfattribs={"layer": layer, "color": color})
+        elif elem["type"] == "text":
+            text = msp.add_text(elem["text"], dxfattribs={"layer": layer, "height": elem.get("height", 10), "color": color})
+            text.set_placement(elem["points"][0], align=TextEntityAlignment.BOTTOM_LEFT)
+
+
+def _draw_plumbing_to_dxf(msp, rooms_with_symbols):
+    """Draw plumbing layer elements to DXF."""
+    from services.plumbing_service import generate_plumbing_layer
+    
+    elements = generate_plumbing_layer(rooms_with_symbols)
+    
+    for elem in elements:
+        layer = "Plumbing"
+        color = 150
+        
+        if elem.get("color") == "#0066ff":
+            color = 5
+        elif elem.get("color") == "#ff3333":
+            color = 1
+        elif elem.get("color") == "#666666":
+            color = 8
+        
+        if elem["type"] == "line":
+            pts = elem["points"]
+            msp.add_line(pts[0], pts[1], dxfattribs={"layer": layer, "color": color})
+        elif elem["type"] == "polyline":
+            msp.add_lwpolyline(elem["points"], dxfattribs={"layer": layer, "color": color})
+        elif elem["type"] == "circle":
+            msp.add_circle(elem["center"], elem["radius"], dxfattribs={"layer": layer, "color": color})
+        elif elem["type"] == "text":
+            text = msp.add_text(elem["text"], dxfattribs={"layer": layer, "height": elem.get("height", 10), "color": color})
+            text.set_placement(elem["points"][0], align=TextEntityAlignment.BOTTOM_LEFT)

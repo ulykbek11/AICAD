@@ -12,6 +12,20 @@ dist
 dist-ssr
 *.local
 
+# Python
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+eggs/
+*.egg-info/
+.installed.cfg
+*.egg
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -23,7 +37,19 @@ dist-ssr
 *.sln
 *.sw?
 
+# Environment variables
 .env
 .env.*
 **/.env
 **/.env.*
+!.env.example
+
+# Backend generated files
+backend/static/downloads/*.dxf
+backend/server_log*.txt
+backend/temp_out.txt
+backend/test.dxf
+
+# Database
+*.db
+*.sqlite3
